@@ -319,3 +319,11 @@ body.eligiendo-perfil .pestanas, body.eligiendo-perfil .reproductor, body.eligie
 .perfil { display: grid; justify-items: center; gap: 8px; background: none; border: 0; padding: 10px; min-width: 120px; border-radius: 16px; cursor: pointer; font-weight: 600; font-size: 17px; }
 .perfil:active { background: var(--superficie-2); }
 .campo.pin { font-size: 24px; letter-spacing: .3em; text-align: center; }
+
+/* Cuenta en la nube */
+.avatar { position: relative; }
+#perfilBtn.con-nube::after { content: "☁"; position: absolute; right: -6px; bottom: -4px; font-size: 13px; background: var(--superficie); color: var(--verde); border-radius: 50%; width: 18px; height: 18px; display: grid; place-items: center; box-shadow: var(--sombra); }
+#perfilBtn.sincronizando::after { content: "↻"; animation: girar 1.2s linear infinite; }
+#perfilBtn.con-error::after { content: "!"; color: var(--peligro); font-weight: 800; }
+.acceso-cuenta { margin-top: 30px; padding-top: 18px; border-top: 1px solid var(--borde); }
+.fila-botones.centrada { justify-content: center; }

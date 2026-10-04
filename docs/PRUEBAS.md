@@ -65,6 +65,10 @@ PDF de prueba con 2 notas por página (una de dos líneas) y llamadas voladas: l
 - Sellos laterales verticales («For the exclusive use of…») se omiten al importar PDF; los documentos ya importados con letras sueltas se reparan al abrirlos.
 - Regresión completa: 55 de 55.
 
+## 2f. Cuentas en la nube (añadido)
+
+Probado contra un servidor que imita Supabase (el entorno de pruebas no puede conectarse al Supabase real): crear cuenta, contraseña corta/incorrecta con mensajes claros, sincronización de biblioteca y notas entre dos dispositivos, cambios sin conexión que se suben al volver, borrados que se propagan, aislamiento entre cuentas, sesión que se mantiene al reabrir y cierre de sesión con borrado local. 12/12. **Pendiente: primera prueba con el Supabase real desde el iPhone.**
+
 ## 3. Pendiente de verificar en iPhone/iPad (no probado)
 
 - Que Safari reserve la memoria del motor (512 MB iniciales por proceso). En equipos con poca memoria podría fallar; la voz ligera usa la misma reserva. Corregirlo exige recompilar sherpa-onnx con menos memoria inicial.

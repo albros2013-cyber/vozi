@@ -2,11 +2,13 @@
 import { ctx, cargarAjustes, guardarAjustes } from './estado.js';
 import { abrir, db, pedirPersistencia, usarBase, listarDocs } from './db.js';
 import * as P from './perfiles.js';
+import * as N from './nube.js';
+import { dialogoCuenta, dialogoNuevaPassword, textoEstadoSync } from './vistas/cuenta.js';
 import { quitarFragmentos } from './tts/segmenter.js';
 import { MotorVoz } from './tts/engine.js';
 import { Reproductor } from './player.js';
 import * as L from './lectura.js';
-import { aviso, dialogo, h, formatoTiempo } from './ui.js';
+import { aviso, dialogo, h, formatoTiempo, confirmar } from './ui.js';
 import { vozPorId } from './voices.js';
 import { vistaBiblioteca } from './vistas/biblioteca.js';
 import { vistaImportar } from './vistas/importar.js';
@@ -290,10 +292,61 @@ async function elegirPerfil() {
             resolve(p);
           } }, h('span', { class: 'avatar grande', style: { background: p.color } }, P.iniciales(p.nombre)), h('span', {}, p.nombre), p.pinHash ? h('span', { class: 'nota-suave' }, '🔒 con PIN') : null)),
           h('button', { class: 'perfil nuevo', onclick: async () => { if (await dialogoNuevoPerfil()) pintar(); } },
-            h('span', { class: 'avatar grande vacio-av' }, '+'), h('span', {}, 'Añadir persona')))));
+            h('span', { class: 'avatar grande vacio-av' }, '+'), h('span', {}, 'Añadir persona'))),
+        h('div', { class: 'acceso-cuenta' },
+          h('p', { class: 'nota-suave' }, '¿Usas VOZI en varios dispositivos? Entra con tu cuenta para tener tu biblioteca y tus notas en todos.'),
+          h('div', { class: 'fila-botones centrada' },
+            h('button', { class: 'boton primario', onclick: async () => { const ses = await dialogoCuenta('entrar'); if (ses) resolve(await prepararSesionCuenta(ses)); } }, 'Entrar con mi cuenta'),
+            h('button', { class: 'boton', onclick: async () => { const ses = await dialogoCuenta('crear'); if (ses) resolve(await prepararSesionCuenta(ses)); } }, 'Crear cuenta')))));
     };
     pintar();
   });
+}
+
+// Tras entrar con una cuenta: se usa (o crea) la sesión de este dispositivo para esa cuenta
+async function prepararSesionCuenta(ses) {
+  const p = await P.perfilParaCuenta(ses.usuario);
+  await P.fijarPerfilActivo(p.id);
+  sessionStorage.setItem('vozi-sesion-pendiente', JSON.stringify({ perfil: p.id, ses }));
+  document.body.classList.remove('eligiendo-perfil');
+  return p;
+}
+
+// Conectar la sesión abierta a una cuenta (sube lo que ya hay en el dispositivo)
+export async function conectarCuenta() {
+  const ses = await dialogoCuenta('entrar');
+  if (!ses) return false;
+  const lista = await P.listarPerfiles();
+  const otra = lista.find((p) => p.cuenta && p.cuenta.id === ses.usuario.id && p.id !== ctx.perfil.id);
+  if (otra) { aviso(`Esa cuenta ya está en la sesión «${otra.nombre}» de este dispositivo. Cambia a esa sesión.`, { tipo: 'error', ms: 7000 }); return false; }
+  await P.actualizarPerfil(ctx.perfil.id, { cuenta: { id: ses.usuario.id, email: ses.usuario.email } });
+  ctx.perfil.cuenta = { id: ses.usuario.id, email: ses.usuario.email };
+  await N.activar(ses, { subirTodo: true });
+  pintarAvatar(ctx.perfil, (await P.listarPerfiles()).length);
+  aviso('Cuenta conectada. Tu información se está subiendo a la nube.');
+  return true;
+}
+
+export async function cerrarSesionCuenta() {
+  const v = await dialogo({
+    titulo: 'Cerrar sesión de la cuenta',
+    contenido: h('p', {}, 'Tu información sigue guardada en tu cuenta. ¿Qué hacemos con la copia de este dispositivo?'),
+    botones: [{ texto: 'Cancelar', valor: null }, { texto: 'Borrarla de este dispositivo', valor: 'borrar', clase: 'peligro' }, { texto: 'Conservarla', valor: 'conservar', clase: 'primario' }],
+  });
+  if (!v) return;
+  try { await N.sincronizar(); } catch { /* sin red: lo pendiente se perdería si se borra */ }
+  const pend = (await db.all('outbox')).length;
+  if (v === 'borrar' && pend && !(await confirmar(`Hay ${pend} cambio(s) que no se han podido subir (¿sin internet?). Si borras ahora se perderán.`, { si: 'Borrar igual', peligro: true }))) return;
+  await N.desactivar();
+  L.guardarPosicion();
+  if (v === 'borrar') {
+    await P.eliminarPerfil(ctx.perfil.id);
+    sessionStorage.setItem('vozi-elegir', '1');
+  } else {
+    await P.actualizarPerfil(ctx.perfil.id, { cuenta: null });
+    for (const x of await db.all('outbox')) await db.del('outbox', x.k);
+  }
+  location.reload();
 }
 
 export async function pedirPin(titulo) {
@@ -323,8 +376,12 @@ export function cambiarDePerfil() {
   location.reload();
 }
 
-function pintarAvatar(perfil, total) {
+function pintarAvatar(perfil, total, soloEstado) {
   const b = document.getElementById('perfilBtn');
+  b.classList.toggle('con-nube', !!(perfil.cuenta && N.hayCuenta()));
+  b.classList.toggle('sincronizando', N.estadoSync.sincronizando);
+  b.classList.toggle('con-error', !!(perfil.cuenta && N.estadoSync.error));
+  if (soloEstado) return;
   b.hidden = false;
   b.textContent = P.iniciales(perfil.nombre);
   b.style.background = perfil.color;
@@ -333,7 +390,9 @@ function pintarAvatar(perfil, total) {
   b.onclick = async () => {
     const v = await dialogo({
       titulo: `Sesión de ${perfil.nombre}`,
-      contenido: h('p', { class: 'nota-suave' }, total > 1 ? 'Cambia de persona para ver su biblioteca y sus notas.' : 'Puedes crear sesiones para otras personas que usen este dispositivo.'),
+      contenido: h('div', {},
+        perfil.cuenta && N.hayCuenta() ? h('p', {}, '☁ ', perfil.cuenta.email, h('br'), h('span', { class: 'nota-suave' }, textoEstadoSync(N.estadoSync))) : h('p', { class: 'nota-suave' }, 'Sesión solo en este dispositivo. Puedes conectarla a una cuenta en Ajustes → Cuenta y sesiones.'),
+        h('p', { class: 'nota-suave' }, total > 1 ? 'Cambia de persona para ver su biblioteca y sus notas.' : 'Puedes crear sesiones para otras personas que usen este dispositivo.')),
       botones: [{ texto: 'Gestionar sesiones', valor: 'gestionar' }, { texto: 'Cambiar de persona', valor: 'cambiar', clase: 'primario' }, { texto: 'Cerrar', valor: null }],
     });
     if (v === 'cambiar') cambiarDePerfil();
@@ -341,8 +400,33 @@ function pintarAvatar(perfil, total) {
   };
 }
 
+// Cambios que llegan desde otro dispositivo
+async function alRecibirCambios(cambios) {
+  if (cambios.some((c) => c.store === 'settings')) { await cargarAjustes(); aplicarTema(); }
+  if (ctx.doc && cambios.some((c) => c.store === 'docs' && c.key === ctx.doc.id)) {
+    const nuevo = await db.get('docs', ctx.doc.id);
+    if (!nuevo) { L.soltarDocumento(); ctx.doc = null; }
+    else if (!ctx.rep.reproduciendo) { ctx.doc = nuevo; ctx.cacheLector = null; }
+  }
+  if (['biblioteca', 'estudiar'].includes(ctx.vista) && !document.getElementById('dialogo').open) ir(ctx.vista, { enfocar: false });
+  aviso('Se actualizó tu información desde otro dispositivo.', { ms: 3000 });
+}
+
 async function iniciar() {
   let perfil;
+  // Enlaces de los correos de la cuenta (confirmación o nueva contraseña)
+  const enlace = N.leerEnlaceDeCorreo();
+  let recuperacion = null;
+  if (enlace && enlace.error) setTimeout(() => aviso('El enlace del correo no es válido o expiró. Pide uno nuevo.', { tipo: 'error', ms: 8000 }), 800);
+  else if (enlace && enlace.tipo === 'recovery') recuperacion = enlace.access;
+  else if (enlace && enlace.access) {
+    try {
+      const usuario = await N.usuarioDeToken(enlace.access);
+      const ses = { access: enlace.access, refresh: enlace.refresh, expira: Date.now() + enlace.expiraEn * 1000, usuario };
+      await prepararSesionCuenta(ses);
+      setTimeout(() => aviso('¡Correo confirmado! Si usas VOZI desde la pantalla de inicio, entra allí con tu correo y contraseña.', { ms: 9000 }), 800);
+    } catch (e) { setTimeout(() => aviso(e.message, { tipo: 'error' }), 800); }
+  }
   try {
     perfil = await elegirPerfil();
     usarBase(P.nombreBase(perfil.id));
@@ -352,9 +436,19 @@ async function iniciar() {
     document.getElementById('principal').append(h('div', { class: 'vacio' }, h('p', {}, 'No se pudo abrir el almacenamiento local: ' + e.message + ' Si usas navegación privada, ábrela en una ventana normal.')));
     return;
   }
+  // Cuenta en la nube: activar la sincronización de esta sesión
+  try {
+    const pendiente = JSON.parse(sessionStorage.getItem('vozi-sesion-pendiente') || 'null');
+    sessionStorage.removeItem('vozi-sesion-pendiente');
+    if (pendiente && pendiente.perfil === perfil.id) await N.activar(pendiente.ses, { subirTodo: true });
+    else if (perfil.cuenta) await N.activar();
+  } catch (e) { console.warn('Nube:', e); }
   await cargarAjustes();
   aplicarTema();
   pintarAvatar(perfil, (await P.listarPerfiles()).length);
+  N.alCambiarEstado(() => pintarAvatar(ctx.perfil, 0, true));
+  window.addEventListener('vozi-nube-cambios', (e) => alRecibirCambios(e.detail));
+  if (recuperacion) setTimeout(() => dialogoNuevaPassword(recuperacion), 600);
   matchMedia('(prefers-color-scheme: dark)').addEventListener('change', aplicarTema);
   ctx.motor = new MotorVoz();
   ctx.rep = new Reproductor();

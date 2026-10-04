@@ -3,7 +3,9 @@
 import { ctx, guardarAjustes } from '../estado.js';
 import { db, estimarAlmacenamiento, pedirPersistencia } from '../db.js';
 import { h, aviso, confirmar, elegirArchivo, compartirODescargar, dialogo } from '../ui.js';
-import { ir, aplicarTema, actualizarReproductor, VERSION, dialogoNuevoPerfil, cambiarDePerfil, pedirPin } from '../app.js';
+import { ir, aplicarTema, actualizarReproductor, VERSION, dialogoNuevoPerfil, cambiarDePerfil, pedirPin, conectarCuenta, cerrarSesionCuenta } from '../app.js';
+import * as N from '../nube.js';
+import { textoEstadoSync, dialogoNuevaPassword } from './cuenta.js';
 import * as P from '../perfiles.js';
 import { VOCES_ES, VOCES_EN, vozPorId } from '../voices.js';
 import { cargarManifiesto, estadoPaquete, descargarPaquete, borrarPaquete, limpiarObsoletos, mb } from '../resources.js';
@@ -21,7 +23,7 @@ export async function vistaAjustes(main, opciones = {}) {
   try { man = await cargarManifiesto(); } catch (e) { cont.append(h('div', { class: 'aviso-ocr falta' }, e.message)); }
   const secciones = [
     ['voz', 'Voz', () => seccionVoz(man)],
-    ['sesiones', 'Sesiones de usuario', () => seccionSesiones()],
+    ['sesiones', 'Cuenta y sesiones', () => seccionSesiones()],
     ['lectura', 'Lectura', () => seccionLectura()],
     ['recursos', 'Recursos sin conexión', () => seccionRecursos(man)],
     ['apariencia', 'Apariencia', () => seccionApariencia()],
@@ -96,13 +98,33 @@ async function seccionSesiones() {
     cont.innerHTML = '';
     const perfiles = await P.listarPerfiles();
     const activo = ctx.perfil && ctx.perfil.id;
-    cont.append(h('p', { class: 'nota-suave' }, 'Cada persona tiene su propia biblioteca, notas, citas, tarjetas, marcadores, progreso, audios y ajustes. Las voces descargadas se comparten, así que no ocupan espacio extra. Todo se guarda solo en este dispositivo.'));
+    // Cuenta en la nube de la sesión abierta
+    const cajaCuenta = h('div', { class: 'caja-destacada' });
+    if (ctx.perfil.cuenta && N.hayCuenta()) {
+      const estado = h('p', { class: 'nota-suave', 'aria-live': 'polite' }, textoEstadoSync(N.estadoSync));
+      const quitar = N.alCambiarEstado((s) => { if (!document.body.contains(estado)) quitar(); else estado.textContent = textoEstadoSync(s); });
+      cajaCuenta.append(
+        h('p', {}, h('strong', {}, '☁ Cuenta: '), ctx.perfil.cuenta.email), estado,
+        h('p', { class: 'nota-suave' }, 'Se sincronizan tus documentos, notas, citas, tarjetas, marcadores, progreso y ajustes. El audio y las voces se quedan en cada dispositivo.'),
+        h('div', { class: 'fila-botones' },
+          h('button', { class: 'boton pequeno primario', onclick: async () => { try { await N.sincronizar(); aviso('Sincronizado.'); } catch (e) { aviso(e.message, { tipo: 'error', ms: 7000 }); } } }, 'Sincronizar ahora'),
+          h('button', { class: 'boton pequeno', onclick: () => dialogoNuevaPassword() }, 'Cambiar contraseña'),
+          h('button', { class: 'boton pequeno peligro', onclick: () => cerrarSesionCuenta() }, 'Cerrar sesión')));
+    } else {
+      cajaCuenta.append(
+        h('p', {}, h('strong', {}, 'Esta sesión está solo en este dispositivo.')),
+        h('p', { class: 'nota-suave' }, 'Conéctala a una cuenta para guardar tu biblioteca y tus notas en la nube y usarlas en el iPhone, el iPad o el computador. Lo que ya tienes aquí se sube a tu cuenta.'),
+        h('div', { class: 'fila-botones' },
+          h('button', { class: 'boton pequeno primario', onclick: async () => { if (await conectarCuenta()) pintar(); } }, 'Entrar o crear cuenta')));
+    }
+    cont.append(cajaCuenta);
+    cont.append(h('h3', {}, 'Sesiones en este dispositivo'), h('p', { class: 'nota-suave' }, 'Cada persona tiene su propia biblioteca, notas, citas, tarjetas, marcadores, progreso, audios y ajustes. Las voces descargadas se comparten, así que no ocupan espacio extra.'));
     const ul = h('ul', { class: 'lista-recursos' });
     for (const p of perfiles) {
       const esActivo = p.id === activo;
       ul.append(h('li', { class: 'recurso' },
         h('span', { class: 'avatar', style: { background: p.color } }, P.iniciales(p.nombre)),
-        h('div', { class: 'recurso-info' }, h('strong', {}, p.nombre + (esActivo ? ' (sesión actual)' : '')), h('span', { class: 'nota-suave' }, p.pinHash ? '🔒 Con PIN' : 'Sin PIN')),
+        h('div', { class: 'recurso-info' }, h('strong', {}, p.nombre + (esActivo ? ' (sesión actual)' : '')), h('span', { class: 'nota-suave' }, [p.cuenta ? '☁ ' + p.cuenta.email : 'Solo en este dispositivo', p.pinHash ? '🔒 Con PIN' : null].filter(Boolean).join(' · '))),
         h('div', { class: 'recurso-acciones' },
           h('button', { class: 'boton pequeno', onclick: async () => {
             const v = await dialogo({ titulo: p.nombre, contenido: h('p', { class: 'nota-suave' }, 'Elige una acción.'), botones: [

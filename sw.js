@@ -2,7 +2,7 @@
  * - La app (código) se guarda en una caché por versión: nunca se mezclan módulos de versiones distintas.
  * - Voces, motores y OCR se guardan aparte (vozi-res-v1) y se conservan entre versiones.
  * - Los datos del usuario (IndexedDB) nunca se tocan aquí. */
-const VERSION = '685b8b8463';
+const VERSION = 'ee7e0e3582';
 const APP_CACHE = 'vozi-app-' + VERSION;
 const RES_CACHE = 'vozi-res-v1';
 const SHELL = [
@@ -21,6 +21,7 @@ const SHELL = [
 "./js/import/pdf.js",
 "./js/import/textos.js",
 "./js/lectura.js",
+"./js/nube.js",
 "./js/perfiles.js",
 "./js/player.js",
 "./js/resources.js",
@@ -34,6 +35,7 @@ const SHELL = [
 "./js/ui.js",
 "./js/vistas/ajustes.js",
 "./js/vistas/biblioteca.js",
+"./js/vistas/cuenta.js",
 "./js/vistas/estudiar.js",
 "./js/vistas/importar.js",
 "./js/vistas/leer.js",

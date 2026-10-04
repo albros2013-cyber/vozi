@@ -63,10 +63,11 @@ async function hashPin(pin, sal) {
   return Array.from(new Uint8Array(d), (b) => b.toString(16).padStart(2, '0')).join('');
 }
 
-export async function crearPerfil(nombre, pin) {
+export async function crearPerfil(nombre, pin, cuenta = null) {
   const lista = await listarPerfiles();
   const p = { id: Date.now().toString(36) + aleatorio(3), nombre: nombre.trim().slice(0, 40), color: COLORES[lista.length % COLORES.length], creado: Date.now() };
   if (pin) { p.sal = aleatorio(); p.pinHash = await hashPin(pin, p.sal); }
+  if (cuenta) p.cuenta = cuenta;
   await op('perfiles', 'readwrite', (s) => s.put(p));
   return p;
 }
@@ -75,6 +76,7 @@ export async function actualizarPerfil(id, cambios) {
   const p = await op('perfiles', 'readonly', (s) => s.get(id));
   if (!p) return null;
   if ('nombre' in cambios) p.nombre = cambios.nombre.trim().slice(0, 40) || p.nombre;
+  if ('cuenta' in cambios) { if (cambios.cuenta) p.cuenta = cambios.cuenta; else delete p.cuenta; }
   if ('pin' in cambios) {
     if (cambios.pin) { p.sal = aleatorio(); p.pinHash = await hashPin(cambios.pin, p.sal); }
     else { delete p.sal; delete p.pinHash; }
@@ -96,6 +98,15 @@ export async function eliminarPerfil(id) {
     r.onsuccess = r.onerror = r.onblocked = () => res();
   });
   if ((await perfilActivoId()) === id) await fijarPerfilActivo(null);
+}
+
+// Perfil de este dispositivo vinculado a una cuenta en la nube (o uno nuevo para ella)
+export async function perfilParaCuenta(usuario) {
+  const lista = await listarPerfiles();
+  const existente = lista.find((p) => p.cuenta && p.cuenta.id === usuario.id);
+  if (existente) return existente;
+  // Si solo hay una sesión local vacía de nombre «Yo», se reutiliza para la cuenta
+  return crearPerfil(usuario.email.split('@')[0], null, { id: usuario.id, email: usuario.email });
 }
 
 export function iniciales(nombre) {

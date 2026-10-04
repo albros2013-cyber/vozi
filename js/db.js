@@ -3,7 +3,7 @@ let dbPromise = null;
 let DB_NAME = 'vozi';
 // Cada sesión de usuario usa su propia base de datos (ver perfiles.js)
 export function usarBase(nombre) { DB_NAME = nombre; dbPromise = null; }
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 // Las migraciones solo AÑADEN almacenes/índices: nunca se borran lecturas, notas ni marcadores.
 const STORES = {
   docs: { keyPath: 'id', indexes: [['updatedAt', 'updatedAt']] },
@@ -16,7 +16,16 @@ const STORES = {
   audioBlobs: { keyPath: 'id' },
   settings: { keyPath: 'key' },
   resources: { keyPath: 'key' },
+  outbox: { keyPath: 'k' }, // cambios pendientes de subir a la nube (solo con cuenta)
 };
+
+// Almacenes que se sincronizan con la cuenta en la nube (el audio y las voces se quedan en cada dispositivo)
+export const SINCRONIZADOS = { docs: 'id', progress: 'docId', bookmarks: 'id', notes: 'id', cards: 'id', settings: 'key' };
+let seguimiento = false;
+let alCambiar = null;
+// La sincronización activa el registro de cambios y recibe un aviso tras cada cambio local
+export function activarSeguimiento(activo, callback) { seguimiento = activo; alCambiar = callback || null; }
+function sincronizable(store, val) { return seguimiento && store in SINCRONIZADOS && (store !== 'settings' || (val && val.key === 'ajustes') || val === 'ajustes'); }
 
 
 export function abrir() {
@@ -76,23 +85,62 @@ export function metaDe(d) {
     progresoPct: d.progresoPct || 0, pages: d.pages || 0, source: d.source || null, idioma: d.idioma || 'auto', npar: d.paragraphs ? d.paragraphs.length : 0 };
 }
 
+function anotar(t, store, key, borrado) {
+  t.objectStore('outbox').put({ k: store + '\u0001' + key, store, key, borrado: !!borrado, ts: Date.now() });
+}
+function avisar() { if (alCambiar) try { alCambiar(); } catch { /* ignorar */ } }
+
 export const db = {
   get: (store, key) => tx(store, 'readonly', (s) => prom(s.get(key))),
-  // Guardar un documento actualiza también su ficha ligera
-  put: (store, val) => store === 'docs'
-    ? txMulti(['docs', 'meta'], (t) => { t.objectStore('docs').put(val); t.objectStore('meta').put(metaDe(val)); })
-    : tx(store, 'readwrite', (s) => prom(s.put(val))),
-  del: (store, key) => store === 'docs'
-    ? txMulti(['docs', 'meta'], (t) => { t.objectStore('docs').delete(key); t.objectStore('meta').delete(key); })
-    : tx(store, 'readwrite', (s) => prom(s.delete(key))),
+  // Guardar un documento actualiza también su ficha ligera; con cuenta, el cambio queda pendiente de subir
+  async put(store, val) {
+    const sync = sincronizable(store, val);
+    const stores = [store];
+    if (store === 'docs') stores.push('meta');
+    if (sync) stores.push('outbox');
+    if (stores.length === 1) return tx(store, 'readwrite', (s) => prom(s.put(val)));
+    await txMulti(stores, (t) => {
+      t.objectStore(store).put(val);
+      if (store === 'docs') t.objectStore('meta').put(metaDe(val));
+      if (sync) anotar(t, store, val[SINCRONIZADOS[store]], false);
+    });
+    if (sync) avisar();
+  },
+  async del(store, key) {
+    const sync = sincronizable(store, store === 'settings' ? key : null) || (seguimiento && store in SINCRONIZADOS && store !== 'settings');
+    const stores = [store];
+    if (store === 'docs') stores.push('meta');
+    if (sync) stores.push('outbox');
+    if (stores.length === 1) return tx(store, 'readwrite', (s) => prom(s.delete(key)));
+    await txMulti(stores, (t) => {
+      t.objectStore(store).delete(key);
+      if (store === 'docs') t.objectStore('meta').delete(key);
+      if (sync) anotar(t, store, key, true);
+    });
+    if (sync) avisar();
+  },
   all: (store) => tx(store, 'readonly', (s) => prom(s.getAll())),
   byIndex: (store, index, value) => tx(store, 'readonly', (s) => prom(s.index(index).getAll(value))),
   clear: (store) => tx(store, 'readwrite', (s) => prom(s.clear())),
   async delWhere(store, index, value) {
-    return tx(store, 'readwrite', async (s) => {
-      const keys = await prom(s.index(index).getAllKeys(value));
-      for (const k of keys) s.delete(k);
-      return keys.length;
+    const keys = await tx(store, 'readonly', (s) => prom(s.index(index).getAllKeys(value)));
+    for (const k of keys) await db.del(store, k);
+    return keys.length;
+  },
+};
+
+// Escritura directa sin registrar cambios (la usa la sincronización al aplicar datos que vienen de la nube)
+export const crudo = {
+  async put(store, val) {
+    await txMulti(store === 'docs' ? ['docs', 'meta'] : [store], (t) => {
+      t.objectStore(store).put(val);
+      if (store === 'docs') t.objectStore('meta').put(metaDe(val));
+    });
+  },
+  async del(store, key) {
+    await txMulti(store === 'docs' ? ['docs', 'meta'] : [store], (t) => {
+      t.objectStore(store).delete(key);
+      if (store === 'docs') t.objectStore('meta').delete(key);
     });
   },
 };
