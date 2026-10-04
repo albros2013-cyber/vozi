@@ -154,7 +154,7 @@ const ABREVIATURAS = [
   ['Prof.', 'profesor'], ['Profa.', 'profesora'], ['Mg.', 'magíster'], ['Arq.', 'arquitecto'],
   ['Ud.', 'usted'], ['Uds.', 'ustedes'], ['Vd.', 'usted'], ['Vds.', 'ustedes'],
   ['etc.', 'etcétera'], ['p. ej.', 'por ejemplo'], ['p.ej.', 'por ejemplo'], ['v. gr.', 'verbigracia'],
-  ['i. e.', 'es decir'], ['e. g.', 'por ejemplo'], ['cf.', 'confróntese'], ['vs.', 'versus'],
+  ['i. e.', 'es decir'], ['e. g.', 'por ejemplo'], ['i.e.', 'es decir'], ['e.g.', 'por ejemplo'], ['cf.', 'confróntese'], ['vs.', 'versus'],
   ['págs.', 'páginas'], ['pág.', 'página'], ['pp.', 'páginas'], ['núm.', 'número'], ['nro.', 'número'],
   ['art.', 'artículo'], ['arts.', 'artículos'], ['cap.', 'capítulo'], ['caps.', 'capítulos'], ['vol.', 'volumen'],
   ['vols.', 'volúmenes'], ['ed.', 'edición'], ['eds.', 'editores'], ['fig.', 'figura'], ['figs.', 'figuras'],
@@ -180,7 +180,51 @@ const UNIDADES_MEDIDA = {
   'm³': ['metro cúbico', 'metros cúbicos'], '°C': ['grado centígrado', 'grados centígrados'],
   'ºC': ['grado centígrado', 'grados centígrados'], GB: ['gigabyte', 'gigabytes'], MB: ['megabyte', 'megabytes'],
   TB: ['terabyte', 'terabytes'], kW: ['kilovatio', 'kilovatios'], kWh: ['kilovatio hora', 'kilovatios hora'],
+  V: ['voltio', 'voltios'], kV: ['kilovoltio', 'kilovoltios'], mV: ['milivoltio', 'milivoltios'],
+  A: ['amperio', 'amperios'], mA: ['miliamperio', 'miliamperios'], kA: ['kiloamperio', 'kiloamperios'],
+  W: ['vatio', 'vatios'], MW: ['megavatio', 'megavatios'], MWh: ['megavatio hora', 'megavatios hora'], Wh: ['vatio hora', 'vatios hora'],
+  VA: ['voltamperio', 'voltamperios'], kVA: ['kilovoltamperio', 'kilovoltamperios'],
+  Hz: ['hercio', 'hercios'], kHz: ['kilohercio', 'kilohercios'], MHz: ['megahercio', 'megahercios'], GHz: ['gigahercio', 'gigahercios'],
+  'Ω': ['ohmio', 'ohmios'], 'kΩ': ['kiloohmio', 'kiloohmios'], 'MΩ': ['megaohmio', 'megaohmios'],
+  '°F': ['grado Fahrenheit', 'grados Fahrenheit'], '°': ['grado', 'grados'], 'mm²': ['milímetro cuadrado', 'milímetros cuadrados'],
+  'cm²': ['centímetro cuadrado', 'centímetros cuadrados'], 'cm³': ['centímetro cúbico', 'centímetros cúbicos'],
+  lb: ['libra', 'libras'], oz: ['onza', 'onzas'], 'm/s': ['metro por segundo', 'metros por segundo'],
+  '"': ['pulgada', 'pulgadas'], 'pulg.': ['pulgada', 'pulgadas'], kB: ['kilobyte', 'kilobytes'], Mbps: ['megabit por segundo', 'megabits por segundo'],
+  ms: ['milisegundo', 'milisegundos'], mmHg: ['milímetro de mercurio', 'milímetros de mercurio'],
 };
+
+// Letras deletreadas (siglas), como se dicen en Colombia
+const LETRAS = { A: 'a', B: 'be', C: 'ce', D: 'de', E: 'e', F: 'efe', G: 'ge', H: 'hache', I: 'i', J: 'jota', K: 'ka', L: 'ele', M: 'eme', N: 'ene', Ñ: 'eñe', O: 'o', P: 'pe', Q: 'cu', R: 'erre', S: 'ese', T: 'te', U: 'u', V: 've', W: 'doble ve', X: 'equis', Y: 'ye', Z: 'zeta' };
+// Siglas que se leen como palabra aunque la regla diga deletrear, y al revés
+const SIGLAS_PALABRA = new Set(['OTAN', 'UNESCO', 'UNICEF', 'ICONTEC', 'COVID', 'SIDA', 'OPEP', 'MERCOSUR', 'FIFA', 'NASA', 'INPEC', 'SENA', 'DANE', 'DIAN', 'ICETEX', 'ICFES', 'SOAT', 'RUT', 'NIT', 'IVA', 'PIB', 'ONU', 'BID', 'RETIE', 'RETILAP', 'LED', 'ISO', 'IPC', 'TIC', 'PYME', 'PYMES', 'MIPYME', 'SAS', 'OCDE', 'CEPAL', 'FARC', 'ELN']);
+const SIGLAS_DELETREO = new Set(['OMS', 'EPS', 'IPS', 'ONG', 'ARL', 'AFP', 'PDF', 'USB', 'CPU', 'PC', 'TV', 'DNI', 'ADN', 'ARN', 'PVC', 'AWG', 'NTC', 'IEC', 'IEEE', 'ANSI', 'RAM', 'URL', 'HTML', 'CEO', 'CFO', 'KPI', 'ERP', 'CRM', 'BPM', 'EE', 'UE']);
+const SILABA = '(?:CH|LL|RR|[BCDFGKPT][LR]|[BCDFGHJKLMNÑPQRSTVWXYZ])?[AEIOUÁÉÍÓÚ]{1,2}Y?(?:[NSRLDZXM](?![AEIOUÁÉÍÓÚ]))?';
+const PRONUNCIABLE = new RegExp('^(?:' + SILABA + ')+[TGCPBKF]?$');
+export function leerSigla(s) {
+  const S = s.toUpperCase();
+  if (SIGLAS_PALABRA.has(S)) return S.toLowerCase();
+  if (!SIGLAS_DELETREO.has(S) && S.length >= 2 && PRONUNCIABLE.test(S)) return S.toLowerCase();
+  return S.split('').map((c) => LETRAS[c] || c).join(' ');
+}
+
+// Anglicismos frecuentes: escritos como se pronuncian en español
+const ANGLICISMOS = {
+  'e-mail': 'imeil', email: 'imeil', 'e-mails': 'imeils', emails: 'imeils', wifi: 'uaifai', 'wi-fi': 'uaifai', iphone: 'aifon', ipad: 'aipad',
+  software: 'sófguer', hardware: 'járguer', online: 'onlain', 'on-line': 'onlain', offline: 'oflain', marketing: 'márketin', breaker: 'bréiker',
+  breakers: 'bréikers', router: 'rúter', smartphone: 'esmárfon', startup: 'estártap', startups: 'estártaps', feedback: 'fídbac', meeting: 'mítin',
+  manager: 'mánayer', coaching: 'cóuchin', coach: 'couch', leasing: 'lísin', outsourcing: 'autsórsin', stock: 'estoc', ranking: 'ránkin',
+  link: 'linc', links: 'lincs', website: 'uébsait', web: 'güeb', google: 'gúgol', youtube: 'yutúb', whatsapp: 'guatsap', facebook: 'feisbuc',
+  instagram: 'ínstagram', laptop: 'láptop', mouse: 'maus', backup: 'bacap', update: 'apdeit', login: 'loguin', password: 'pásguord',
+  podcast: 'pódcast', streaming: 'estrímin', show: 'chou', light: 'lait', delivery: 'delíveri',
+   'know-how': 'nou jau', benchmarking: 'bénchmarkin', branding: 'brándin', target: 'tárguet', budget: 'báyet', deadline: 'dédlain',
+  workshop: 'guórchop', networking: 'nétguorkin', insight: 'ínsait', insights: 'ínsaits', performance: 'perfórmans', checklist: 'chéclist',
+  'call center': 'col center', 'big data': 'big deita', cloud: 'claud', app: 'ap', apps: 'aps', smart: 'esmart', switch: 'suich',
+};
+const RE_ANGLICISMOS = new RegExp('(^|[^\\p{L}])(' + Object.keys(ANGLICISMOS).sort((a, b) => b.length - a.length).map((k) => escRe(k)).join('|') + ')(?=$|[^\\p{L}])', 'giu');
+
+const FRACCIONES = { 2: ['medio', 'medios'], 3: ['tercio', 'tercios'], 4: ['cuarto', 'cuartos'], 5: ['quinto', 'quintos'], 6: ['sexto', 'sextos'], 7: ['séptimo', 'séptimos'], 8: ['octavo', 'octavos'], 9: ['noveno', 'novenos'], 10: ['décimo', 'décimos'] };
+const ORDINAL_ABREV = { er: 'm', ro: 'm', do: 'm', to: 'm', vo: 'm', no: 'm', mo: 'm', ra: 'f', da: 'f', ta: 'f', va: 'f', na: 'f', ma: 'f' };
+const ROMANOS_ORDINAL = { II: 2, III: 3, IV: 4, V: 5, VI: 6, VII: 7, VIII: 8, IX: 9, X: 10, XI: 11, XII: 12, XIII: 13 };
 
 const PALABRAS_ROMANOS = /\b(siglo|siglos|capítulo|capítulos|tomo|tomos|volumen|libro|parte|título|acto|fase|etapa|nivel|grado|tramo|anexo|sección)\s+([IVXLCDM]{1,7})\b/gi;
 
@@ -207,9 +251,12 @@ export function normalizar(texto, opciones = {}) {
     .replace(/[“”«»„]/g, '"').replace(/[‘’‚]/g, "'")
     .replace(/…/g, '...').replace(/ /g, ' ');
 
-  // URLs y correos
-  t = t.replace(/\bhttps?:\/\/(\S+)/gi, (_, u) => leerUrl(u));
-  t = t.replace(/\bwww\.(\S+)/gi, (_, u) => 'w w w punto ' + leerUrl(u));
+  // Anglicismos frecuentes, escritos como se pronuncian
+  t = t.replace(RE_ANGLICISMOS, (m, pre, w) => pre + (ANGLICISMOS[w.toLowerCase()] || w));
+
+  // URLs y correos (sin tragarse el punto final de la oración)
+  t = t.replace(/\bhttps?:\/\/(\S+?)([.,;:!?)]*)(?=\s|$)/gi, (_, u, fin) => leerUrl(u) + fin);
+  t = t.replace(/\bwww\.(\S+?)([.,;:!?)]*)(?=\s|$)/gi, (_, u, fin) => 'w w w punto ' + leerUrl(u) + fin);
   t = t.replace(/\b([\w.+-]+)@([\w-]+(?:\.[\w-]+)+)\b/g, (_, a, d) => `${a.replace(/[._]/g, ' punto ')} arroba ${d.replace(/\./g, ' punto ')}`);
 
   // Abreviaturas (las más largas primero)
@@ -227,7 +274,38 @@ export function normalizar(texto, opciones = {}) {
     return w + (sig || '');
   });
   t = t.replace(/\b(\d{1,2})\.?\s?ª/g, (_, n) => ordinal(+n, 'f'));
-  t = t.replace(/\b1er\b/g, 'primer').replace(/\b3er\b/g, 'tercer');
+  // 1er. 2do. 3ra. 1.er 4to → primer, segundo, tercera, primer, cuarto
+  t = t.replace(/\b(\d{1,2})\.?(er|ro|ra|do|da|to|ta|vo|va|no|na|mo|ma)\b\.?/g, (m, n, suf) => {
+    const g = ORDINAL_ABREV[suf];
+    let w = ordinal(+n, g);
+    if (suf === 'er') w = w.replace(/^(primero|tercero)/, (x) => x.slice(0, -1));
+    return w;
+  });
+
+  // Nombres con número romano: «Juan Pablo II» → «Juan Pablo segundo», «Carlos V» → «Carlos quinto»
+  t = t.replace(/(\b[A-ZÁÉÍÓÚ][a-záéíóúñ]{2,})\s+(II|III|IV|V|VI|VII|VIII|IX|X|XI|XII|XIII)\b(?![\p{L}\d-])/gu, (m, w, r) => {
+    if (/^(siglo|siglos|capítulo|capítulos|tomo|tomos|volumen|libro|parte|título|acto|fase|etapa|nivel|grado|tramo|anexo|sección|artículo|tabla|figura|anexo|unidad|módulo|tema)$/i.test(w)) return m;
+    return `${w} ${ordinal(ROMANOS_ORDINAL[r], 'm')}`;
+  });
+
+  // Códigos con letras y números: «ASN-61-I68», «COVID-19», «MP3»
+  t = t.replace(/(?<![\p{L}\d])(?=[A-ZÑ\d-]*[A-ZÑ])(?=[A-ZÑ\d-]*\d)[A-ZÑ\d]+(?:-[A-ZÑ\d]+)*(?![\p{L}\d])/gu, (m) => {
+    if (/^\d+-\d+$/.test(m)) return m;
+    const partes = m.split('-').map((seg) => seg.match(/[A-ZÑ]+|\d+/g).map((x) => /\d/.test(x) ? (x.length <= 4 && !x.startsWith('0') ? numeroALetras(+x) : digitos(x)) : leerSigla(x)).join(' '));
+    return partes.join(partes.length > 2 ? ', ' : ' ');
+  });
+
+  // Fracciones 3/4, 1/2 (y pulgadas: 3/4" → tres cuartos de pulgada)
+  t = t.replace(/(?<![\d/])(\d{1,2})\/(\d{1,2})(?![\d/])(\s?")?/g, (m, a, b, pulg) => {
+    const n = +a, d = +b;
+    if (!d) return m;
+    let w;
+    if (FRACCIONES[d]) w = (n === 1 ? (d === 2 ? 'un' : 'un') : numeroALetras(n)) + ' ' + FRACCIONES[d][n === 1 ? 0 : 1];
+    else w = `${numeroALetras(n)} sobre ${numeroALetras(d)}`;
+    if (d === 2 && n === 1) w = 'medio';
+    return pulg ? `${w} de pulgada` : w;
+  });
+  t = t.replace(/\by\/o\b/g, 'y o');
 
   // Números romanos tras palabras clave (siglo XXI → siglo veintiuno)
   t = t.replace(PALABRAS_ROMANOS, (m, w, r) => {
@@ -284,7 +362,11 @@ export function normalizar(texto, opciones = {}) {
     return `${cifraALetras(c, 'apocope')} ${esUno ? sg : pl}`;
   });
 
-  // Signos sueltos
+  // Signos sueltos y de comparación
+  t = t.replace(/\s?≤\s?/g, ' menor o igual a ').replace(/\s?≥\s?/g, ' mayor o igual a ')
+    .replace(/(^|\s)<\s?(?=[\p{L}\p{N}])/gu, '$1menor que ').replace(/(^|\s)>\s?(?=[\p{L}\p{N}])/gu, '$1mayor que ')
+    .replace(/\s?±\s?/g, ' más o menos ').replace(/\s?≈\s?/g, ' aproximadamente ').replace(/\s?÷\s?/g, ' entre ')
+    .replace(/\s×\s/g, ' por ').replace(/\s→\s/g, ', ').replace(/(\S)\s?φ/g, '$1 fases');
   t = t.replace(/\s&\s/g, ' y ').replace(/\s\+\s/g, ' más ').replace(/\s=\s/g, ' igual a ')
     .replace(/\s[x×]\s(?=\d)/g, ' por ').replace(/§\s?/g, 'sección ');
 
@@ -301,6 +383,17 @@ export function normalizar(texto, opciones = {}) {
   t = t.replace(/(?<![mk])[⁰¹²³⁴⁵⁶⁷⁸⁹†]+/gu, '');
   // Al inicio de una nota al pie: «¹ Ver…» / «1. Ver…» se lee «Nota 1. Ver…»
   t = t.replace(/^\s*([⁰¹²³⁴⁵⁶⁷⁸⁹]+)\s*/u, '');
+
+  // Siglas en mayúsculas: se leen como palabra si se pueden pronunciar (ONU, RETIE) o letra por letra (PDF, NTC).
+  // En títulos escritos todo en mayúsculas, las palabras largas se leen normal.
+  const letrasT = t.replace(/[^\p{L}]/gu, '');
+  const mayus = letrasT.length > 12 && (letrasT.replace(/[^\p{Lu}]/gu, '').length / letrasT.length) > 0.6;
+  t = t.replace(/(?<![\p{L}\d])[A-ZÁÉÍÓÚÑ]{2,}(?![\p{L}\d])/gu, (w) => {
+    if (/^[IVX]+$/.test(w) && romanoAEntero(w) > 0) return numeroALetras(romanoAEntero(w));
+    if (mayus && w.length >= 4) return w.toLowerCase();
+    if (/[ÁÉÍÓÚ]/.test(w)) return w.toLowerCase();
+    return leerSigla(w);
+  });
 
   // Viñetas y guiones al inicio
   t = t.replace(/(^|\n)\s*[•▪◦●■□➢►–—-]\s+/g, '$1');

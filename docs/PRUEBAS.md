@@ -89,6 +89,15 @@ Motor WebLLM (tarjeta gráfica, WebGPU) con modelos Qwen: Equilibrado (Qwen3 1,7
 - Probado aquí con un motor simulado (este entorno no tiene tarjeta gráfica ni acceso a los modelos): interfaz, partición del texto, resumen en dos niveles, tarjetas, notas, preguntas con páginas y explicación. 7/7.
 - **No probado todavía con el modelo real.** Se verifica en el iPhone con Ajustes → Inteligencia artificial → «Descargar y probar».
 
+## 2i. Pronunciación (añadido)
+
+Nuevas reglas: siglas (como palabra si se pueden pronunciar: ONU, RETIE, DIAN; letra por letra si no: PDF, NTC, EPS), códigos (ASN-61-I68, COVID-19, A4), unidades eléctricas (V, A, W, Hz, Ω, kVA…), fracciones y pulgadas (3/4"), comparaciones (<, ≥, ±, ×), ordinales abreviados (1er., 2do., 3ra.), reyes y papas (Juan Pablo II), palabras en mayúsculas de énfasis (MUY, NO), títulos en mayúsculas y anglicismos comunes (e-mail, WiFi, breaker, router, software…).
+Comparación con transcripción automática, misma voz, antes → después:
+- «ASN-61-I68 exige 120 V y 15 A» → antes «ASS-61-68… 120B y 15A»; después «…120 voltios y 15 amperios».
+- «< 25 Ω a 60 Hz» → antes «25 o 6.6»; después «menor que 25 ohmios a 60 hercios».
+- «3/4" y un breaker de 20 A… 3φ» → antes «break de 20 APA… 3/5»; después «3/4 de pulgada y un breaker de 20 amperios… 3 fases».
+- «2do. informe» → antes «doso "Informe"»; después «segundo informe».
+
 ## 3. Pendiente de verificar en iPhone/iPad (no probado)
 
 - Que dos procesos de voz quepan en la memoria del iPhone (unos 250 MB cada uno). Si no, VOZI vuelve sola a uno.
