@@ -57,7 +57,9 @@ export async function vistaBiblioteca(main) {
   cont.append(
     h('div', { class: 'barra-vista' }, buscador, h('button', { class: 'boton primario', onclick: () => ir('importar') }, '+ Importar')),
     lista,
-    h('p', { class: 'nota-suave' }, 'Todo se guarda solo en este dispositivo. Borrar los datos del navegador o de la app eliminaría tus lecturas: usa Ajustes → Copia de seguridad.'));
+    h('p', { class: 'nota-suave' }, ctx.perfil && ctx.perfil.cuenta && ctx.perfil.conectada
+      ? 'Tus documentos, notas y avance se guardan en este dispositivo y en tu cuenta. El audio preparado queda solo en este dispositivo.'
+      : 'Todo se guarda solo en este dispositivo. Borrar los datos del navegador o de la app eliminaría tus lecturas: usa Ajustes → Copia de seguridad.'));
   main.append(cont);
 
   async function opcionesDoc(meta) {

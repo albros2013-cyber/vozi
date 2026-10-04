@@ -466,7 +466,12 @@ async function alRecibirCambios(cambios) {
     else if (!ctx.rep.reproduciendo) { ctx.doc = nuevo; ctx.cacheLector = null; }
   }
   if (['biblioteca', 'estudiar'].includes(ctx.vista) && !document.getElementById('dialogo').open) ir(ctx.vista, { enfocar: false });
-  aviso('Se actualizó tu información desde otro dispositivo.', { ms: 3000 });
+  // Avisar solo de cambios de contenido (no del punto de lectura ni ajustes) y como mucho una vez cada 10 minutos
+  const relevantes = cambios.filter((c) => !['progress', 'settings'].includes(c.store));
+  if (relevantes.length && Date.now() - (alRecibirCambios.ultimo || 0) > 10 * 60 * 1000) {
+    alRecibirCambios.ultimo = Date.now();
+    aviso('Se actualizó tu información desde otro dispositivo.', { ms: 3000 });
+  }
 }
 
 async function iniciar() {

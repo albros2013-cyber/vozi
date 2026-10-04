@@ -241,6 +241,13 @@ async function subir() {
   }
 }
 
+// La base de datos reordena las claves del JSON: comparar sin depender del orden
+function estable(v) {
+  if (Array.isArray(v)) return '[' + v.map(estable).join(',') + ']';
+  if (v && typeof v === 'object') return '{' + Object.keys(v).sort().filter((k) => v[k] !== undefined).map((k) => JSON.stringify(k) + ':' + estable(v[k])).join(',') + '}';
+  return JSON.stringify(v);
+}
+
 async function bajar() {
   const token = await tokenVigente();
   const cursor = await getSetting('nube-cursor', '1970-01-01T00:00:00.000Z');
@@ -269,7 +276,7 @@ async function bajar() {
         data = { key: 'ajustes', value: { ...(data.value || {}), ...Object.fromEntries(LOCALES.filter((x) => local && local.value && x in local.value).map((x) => [x, local.value[x]])) } };
       }
       const local = await db.get(f.store, f.key);
-      if (local && JSON.stringify(local) === JSON.stringify(data)) continue;
+      if (local && estable(local) === estable(data)) continue; // eco de lo que este equipo subió
       await crudo.put(f.store, data);
       cambios.push({ store: f.store, key: f.key });
     }

@@ -60,6 +60,14 @@ ok('El otro dispositivo recibe la biblioteca', (await docsDe(B.pg)).includes('Ca
 await B.pg.evaluate(async () => { await window.__vozi.db.put('notes', { id: 'nB', docId: 'dA', tipo: 'nota', texto: 'Nota escrita en el iPad', pid: 'a1', creado: Date.now(), actualizado: Date.now() }); });
 await B.pg.evaluate(() => import('./js/nube.js').then((N) => N.sincronizar()));
 await A.pg.evaluate(() => import('./js/nube.js').then((N) => N.sincronizar()));
+// Ecos: lo que este equipo subió no debe volver como «cambio desde otro dispositivo»
+const ecos = await A.pg.evaluate(async () => {
+  let n = 0; const f = (e) => { n += e.detail.length; }; window.addEventListener('vozi-nube-cambios', f);
+  await window.__vozi.db.put('progress', { docId: 'dA', pid: 'a1', pidx: 0, s: 1, tiempo: 3.5, actualizado: Date.now() });
+  const N = await import('./js/nube.js'); await N.sincronizar(); await N.sincronizar(); await N.sincronizar();
+  window.removeEventListener('vozi-nube-cambios', f); return n;
+});
+ok('Sin avisos falsos por los propios cambios (eco)', ecos === 0, `${ecos} cambio(s) eco`);
 ok('Las notas viajan entre dispositivos', await A.pg.evaluate(async () => !!(await window.__vozi.db.get('notes', 'nB'))));
 
 // Cambio sin conexión en A: queda pendiente y se sube al volver

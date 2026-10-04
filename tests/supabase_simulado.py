@@ -21,6 +21,12 @@ def sesion(u):
     TOKENS[a] = u['id']; REFRESH[r] = u['id']
     return {'access_token': a, 'refresh_token': r, 'expires_in': 3600, 'token_type': 'bearer', 'user': {'id': u['id'], 'email': u['email']}}
 
+def como_jsonb(v):
+    # Postgres (jsonb) devuelve las claves reordenadas: primero las más cortas, luego alfabético
+    if isinstance(v, dict): return {k: como_jsonb(v[k]) for k in sorted(v, key=lambda k: (len(k.encode()), k))}
+    if isinstance(v, list): return [como_jsonb(x) for x in v]
+    return v
+
 class H(BaseHTTPRequestHandler):
     def log_message(self, *a): pass
     def cors(self):
@@ -75,7 +81,7 @@ class H(BaseHTTPRequestHandler):
                 if metodo == 'POST':
                     for f in self.cuerpo():
                         if f.get('user_id', uid) != uid: return self.responder(403, {'message': 'new row violates row-level security policy'})
-                        FILAS[(uid, f['store'], f['key'])] = {'user_id': uid, 'store': f['store'], 'key': f['key'], 'data': f.get('data'), 'deleted': bool(f.get('deleted')), 'updated_at': ahora()}
+                        FILAS[(uid, f['store'], f['key'])] = {'user_id': uid, 'store': f['store'], 'key': f['key'], 'data': como_jsonb(f.get('data')), 'deleted': bool(f.get('deleted')), 'updated_at': ahora()}
                     return self.responder(201)
                 if metodo == 'GET':
                     filas = [f for (u2, _, _), f in FILAS.items() if u2 == uid]
