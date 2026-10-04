@@ -4,7 +4,10 @@
 import { ctx, guardarAjustes } from '../estado.js';
 import { getSetting, setSetting } from '../db.js';
 
+import { instalarFetchResistente } from './red.js';
+
 const LIB = new URL('../../vendor/webllm/web-llm.js', import.meta.url).href;
+if (typeof window !== 'undefined') instalarFetchResistente(window);
 
 // Modelos ofrecidos (si la versión de WebLLM los trae). f16 = más rápido y liviano si el equipo lo permite.
 export const MODELOS_IA = [
@@ -50,14 +53,14 @@ async function idReal(m) {
 
 export async function modeloDescargado(m = modeloElegido()) {
   if (simulada()) return !!(await getSetting('ia-sim-descargado', false));
-  try { const l = await cargarLib(); return await l.hasModelInCache(await idReal(m), l.prebuiltAppConfig); } catch (e) { return false; }
+  try { const l = await cargarLib(); return await l.hasModelInCache(await idReal(m), configApp(l)); } catch (e) { return false; }
 }
 
 export async function borrarModelo(m = modeloElegido()) {
   if (simulada()) { await setSetting('ia-sim-descargado', false); return; }
   await descargarMotor();
   const l = await cargarLib();
-  await l.deleteModelAllInfoInCache(await idReal(m), l.prebuiltAppConfig);
+  await l.deleteModelAllInfoInCache(await idReal(m), configApp(l));
 }
 
 export async function descargarMotor() {
@@ -84,26 +87,48 @@ export async function prepararIA(onProgreso) {
     if (!s.ok) throw new Error(s.motivo);
     const l = await cargarLib();
     const id = await idReal(m);
-    const conf = {
-      appConfig: l.prebuiltAppConfig,
+    const conf = () => ({
+      appConfig: configApp(l),
       initProgressCallback: (r) => onProgreso && onProgreso({ fraccion: r.progress || 0, texto: traducirProgreso(r.text || '') }),
+    });
+    const enProceso = async () => {
+      const w = new Worker(new URL('./ia-worker.js', import.meta.url), { type: 'module' });
+      try { return await l.CreateWebWorkerMLCEngine(w, id, conf()); } catch (e) { w.terminate(); throw e; }
     };
-    let w = null;
+    const esRed = (e) => (e && e.red) || /Load failed|fetch|network|NetworkError|descargar/i.test(String(e && e.message));
+    await mantenerPantalla(true); // que el iPhone/iPad no se duerma a mitad de la descarga
     try {
-      // En segundo plano para no trabar la pantalla
-      w = new Worker(new URL('./ia-worker.js', import.meta.url), { type: 'module' });
-      motor = await l.CreateWebWorkerMLCEngine(w, id, conf);
-    } catch (e) {
-      // Si el navegador no permite la tarjeta gráfica dentro del proceso, se usa en la página
-      if (w) w.terminate();
-      if (/memory|OOM|fetch|network/i.test(String(e && e.message))) throw e;
-      motor = await l.CreateMLCEngine(id, conf);
-    }
+      try { motor = await enProceso(); } catch (e) {
+        if (/memory|OOM/i.test(String(e && e.message))) throw e;
+        if (esRed(e) && !usaIDB()) {
+          // Safari a veces falla guardando archivos grandes en la caché web: probar con IndexedDB
+          usarIDB(true);
+          onProgreso && onProgreso({ fraccion: 0, texto: 'Reintentando la descarga con otro almacenamiento…' });
+          try { motor = await enProceso(); } catch (e2) { if (esRed(e2)) usarIDB(false); throw e2; }
+        } else if (!esRed(e)) {
+          // Si el navegador no permite la tarjeta gráfica dentro del proceso, se usa en la página
+          motor = await l.CreateMLCEngine(id, conf());
+        } else throw e;
+      }
+    } finally { await mantenerPantalla(false); }
     cargadoId = m.id;
     return motor;
   })();
   cargando = { id: m.id, p };
   try { return await p; } catch (e) { motor = null; cargadoId = null; throw traducirError(e); } finally { cargando = null; }
+}
+
+// Dónde guarda WebLLM los modelos: caché web (normal) o IndexedDB (respaldo para Safari)
+function usaIDB() { try { return localStorage.getItem('vozi-ia-idb') === '1'; } catch (e) { return false; } }
+function usarIDB(si) { try { if (si) localStorage.setItem('vozi-ia-idb', '1'); else localStorage.removeItem('vozi-ia-idb'); } catch (e) { /* nada */ } }
+function configApp(l) { return usaIDB() ? { ...l.prebuiltAppConfig, cacheBackend: 'indexeddb', useIndexedDBCache: true } : l.prebuiltAppConfig; }
+
+let candado = null;
+async function mantenerPantalla(si) {
+  try {
+    if (si && 'wakeLock' in navigator && !candado) candado = await navigator.wakeLock.request('screen');
+    if (!si && candado) { await candado.release(); candado = null; }
+  } catch (e) { /* no disponible */ }
 }
 
 function traducirProgreso(t) {
@@ -120,7 +145,8 @@ function traducirError(e) {
   const m = String(e && e.message || e);
   if (/memory|OOM|allocation|Device was lost|lost/i.test(m)) return new Error('El equipo se quedó sin memoria para la IA. Cierra otras apps o elige el modelo «Ligero».');
   if (/shader-f16|f16/i.test(m)) return new Error('La tarjeta gráfica no admite este formato. Prueba otra vez: VOZI usará el formato compatible.');
-  if (/fetch|network|Failed to fetch/i.test(m)) return new Error('No se pudo descargar el modelo. La primera vez se necesita internet (mejor con wifi).');
+  if (e && e.red) return new Error(m + '. Revisa el wifi, deja la pantalla encendida y vuelve a intentarlo: lo ya descargado se conserva.');
+  if (/Load failed|fetch|network/i.test(m)) return new Error('La descarga del modelo se interrumpió (' + m + '). Revisa el wifi, deja la pantalla encendida y vuelve a intentarlo: lo ya descargado se conserva.');
   return new Error('Error de la IA: ' + m);
 }
 
