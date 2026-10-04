@@ -1,7 +1,8 @@
 // VOZI — Arranque, navegación, tema y reproductor.
 import { ctx, cargarAjustes, guardarAjustes } from './estado.js';
-import { abrir, db, pedirPersistencia, usarBase } from './db.js';
+import { abrir, db, pedirPersistencia, usarBase, listarDocs } from './db.js';
 import * as P from './perfiles.js';
+import { quitarFragmentos } from './tts/segmenter.js';
 import { MotorVoz } from './tts/engine.js';
 import { Reproductor } from './player.js';
 import * as L from './lectura.js';
@@ -46,7 +47,7 @@ export async function ir(vista, opciones = {}) {
 }
 
 async function ultimoDocumento() {
-  const docs = await db.all('docs');
+  const docs = await listarDocs();
   docs.sort((a, b) => (b.ultimaLectura || b.updatedAt || 0) - (a.ultimaLectura || a.updatedAt || 0));
   return docs[0] || null;
 }
@@ -54,12 +55,21 @@ async function ultimoDocumento() {
 export async function abrirDocumento(id, { navegar = true, pidx = null } = {}) {
   const doc = await db.get('docs', id);
   if (!doc) { aviso('No se encontró el documento.'); return; }
+  // Reparar documentos importados antes: letras sueltas de sellos verticales («oc / tu / br / e»)
+  if (!doc.reparado1) {
+    const antes = doc.paragraphs.length;
+    doc.paragraphs = quitarFragmentos(doc.paragraphs, (p) => p.text);
+    doc.reparado1 = true;
+    await db.put('docs', doc);
+    if (doc.paragraphs.length < antes) aviso(`Se quitaron ${antes - doc.paragraphs.length} fragmentos sueltos de texto vertical.`);
+  }
   if (ctx.doc && ctx.doc.id !== doc.id) L.soltarDocumento();
   const cambio = !ctx.doc || ctx.doc.id !== doc.id;
   ctx.doc = doc;
   ctx.rep.setTitulo(doc.title);
   let pos = null;
   if (cambio) pos = await L.restaurarPosicion(doc);
+  setTimeout(() => L.precalentar(), 1200); // cargar la voz en segundo plano
   if (navegar) await ir('leer', { pidx: pidx != null ? pidx : (pos ? pos.pidx : 0), s: pos ? pos.s : 0 });
 }
 
@@ -168,6 +178,7 @@ function configurarReproductor() {
   L.eventos.addEventListener('siguiente', () => actualizarReproductor());
   L.eventos.addEventListener('esperando', () => actualizarReproductor());
   L.eventos.addEventListener('tramo', () => { actualizarReproductor(); actualizarAccionesLeer(); });
+  L.eventos.addEventListener('objetivo', (e) => resaltarPosicion(e.detail, { forzarScroll: false }));
   L.eventos.addEventListener('faltaVoz', (e) => L.avisoFaltaVoz(e.detail || [], (sec) => ir('ajustes', { seccion: sec })));
 
   // Atajos de teclado (iPad con teclado)
@@ -353,7 +364,7 @@ async function iniciar() {
   chipTemporizador();
   registrarSW();
   pedirPersistencia();
-  const docs = await db.all('docs');
+  const docs = await listarDocs();
   const destino = new URLSearchParams(location.search).get('v');
   if (destino && VISTAS[destino]) await ir(destino);
   else if (docs.length) {

@@ -3,10 +3,11 @@ let dbPromise = null;
 let DB_NAME = 'vozi';
 // Cada sesión de usuario usa su propia base de datos (ver perfiles.js)
 export function usarBase(nombre) { DB_NAME = nombre; dbPromise = null; }
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 // Las migraciones solo AÑADEN almacenes/índices: nunca se borran lecturas, notas ni marcadores.
 const STORES = {
   docs: { keyPath: 'id', indexes: [['updatedAt', 'updatedAt']] },
+  meta: { keyPath: 'id' }, // datos ligeros de cada documento (para listas rápidas sin cargar todo el texto)
   progress: { keyPath: 'docId' },
   bookmarks: { keyPath: 'id', indexes: [['docId', 'docId']] },
   notes: { keyPath: 'id', indexes: [['docId', 'docId']] },
@@ -22,8 +23,9 @@ export function abrir() {
   if (dbPromise) return dbPromise;
   dbPromise = new Promise((resolve, reject) => {
     const req = indexedDB.open(DB_NAME, DB_VERSION);
-    req.onupgradeneeded = () => {
+    req.onupgradeneeded = (ev) => {
       const db = req.result;
+      const migrarMeta = ev.oldVersion >= 1 && ev.oldVersion < 2;
       for (const [nombre, def] of Object.entries(STORES)) {
         let st;
         if (!db.objectStoreNames.contains(nombre)) st = db.createObjectStore(nombre, { keyPath: def.keyPath });
@@ -31,6 +33,15 @@ export function abrir() {
         for (const [iname, path] of def.indexes || []) {
           if (!st.indexNames.contains(iname)) st.createIndex(iname, path);
         }
+      }
+      if (migrarMeta) {
+        const tx = req.transaction;
+        tx.objectStore('docs').openCursor().onsuccess = (e) => {
+          const c = e.target.result;
+          if (!c) return;
+          tx.objectStore('meta').put(metaDe(c.value));
+          c.continue();
+        };
       }
     };
     req.onsuccess = () => {
@@ -60,10 +71,20 @@ async function tx(store, mode, fn) {
   });
 }
 
+export function metaDe(d) {
+  return { id: d.id, title: d.title, createdAt: d.createdAt, updatedAt: d.updatedAt, ultimaLectura: d.ultimaLectura || null,
+    progresoPct: d.progresoPct || 0, pages: d.pages || 0, source: d.source || null, idioma: d.idioma || 'auto', npar: d.paragraphs ? d.paragraphs.length : 0 };
+}
+
 export const db = {
   get: (store, key) => tx(store, 'readonly', (s) => prom(s.get(key))),
-  put: (store, val) => tx(store, 'readwrite', (s) => prom(s.put(val))),
-  del: (store, key) => tx(store, 'readwrite', (s) => prom(s.delete(key))),
+  // Guardar un documento actualiza también su ficha ligera
+  put: (store, val) => store === 'docs'
+    ? txMulti(['docs', 'meta'], (t) => { t.objectStore('docs').put(val); t.objectStore('meta').put(metaDe(val)); })
+    : tx(store, 'readwrite', (s) => prom(s.put(val))),
+  del: (store, key) => store === 'docs'
+    ? txMulti(['docs', 'meta'], (t) => { t.objectStore('docs').delete(key); t.objectStore('meta').delete(key); })
+    : tx(store, 'readwrite', (s) => prom(s.delete(key))),
   all: (store) => tx(store, 'readonly', (s) => prom(s.getAll())),
   byIndex: (store, index, value) => tx(store, 'readonly', (s) => prom(s.index(index).getAll(value))),
   clear: (store) => tx(store, 'readwrite', (s) => prom(s.clear())),
@@ -75,6 +96,32 @@ export const db = {
     });
   },
 };
+
+async function txMulti(stores, fn) {
+  const d = await abrir();
+  return new Promise((res, rej) => {
+    const t = d.transaction(stores, 'readwrite');
+    fn(t);
+    t.oncomplete = () => res();
+    t.onerror = () => rej(t.error);
+  });
+}
+
+// Lista rápida de documentos (sin cargar el texto completo)
+export async function listarDocs() {
+  let m = await db.all('meta');
+  if (!m.length) {
+    const docs = await db.all('docs');
+    if (docs.length) { for (const d of docs) await db.put('meta', metaDe(d)); m = docs.map(metaDe); }
+  }
+  return m;
+}
+
+// Actualiza solo la ficha ligera (p. ej., avance de lectura) sin reescribir el documento
+export async function actualizarMeta(id, cambios) {
+  const m = await db.get('meta', id);
+  if (m) await db.put('meta', { ...m, ...cambios });
+}
 
 export async function getSetting(key, def) {
   const r = await db.get('settings', key).catch(() => null);

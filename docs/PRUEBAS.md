@@ -55,6 +55,16 @@ PDF de prueba con 2 notas por página (una de dos líneas) y llamadas voladas: l
 - Encabezados y pies de página: se omiten números de página, líneas de margen repetidas y líneas de margen aisladas en letra pequeña o con número (encabezados que cambian por capítulo); los títulos más grandes que el cuerpo se conservan. Opción para desactivarlo al importar. En OCR se quitan las primeras/últimas líneas repetidas entre páginas.
 - Regresión completa: 50 de 50 pruebas superadas.
 
+## 2e. Rapidez y errores reportados en iPhone (añadido)
+
+- «Escuchar desde aquí»: inicio rápido con la primera oración sola; voz audible en ~13 s en el equipo de prueba (antes ~78 s con tramo de 1 min). Toques repetidos durante la preparación: sin errores (corregido «Object.assign requires…»), empieza en el último párrafo elegido (~15 s; antes ~37 s).
+- Volver a un párrafo con audio ya preparado (aunque esté en medio de un tramo): 15–25 ms, sin sintetizar.
+- La voz se carga en memoria al abrir el documento y se prepara el comienzo en el punto guardado.
+- Tramos siguientes de tamaño adaptativo según la velocidad medida del dispositivo; pueden cortarse entre oraciones.
+- Biblioteca y estudio leen fichas ligeras (no el texto completo); el avance de lectura ya no reescribe el documento entero; el texto de lectura se reutiliza al cambiar de pestaña.
+- Sellos laterales verticales («For the exclusive use of…») se omiten al importar PDF; los documentos ya importados con letras sueltas se reparan al abrirlos.
+- Regresión completa: 55 de 55.
+
 ## 3. Pendiente de verificar en iPhone/iPad (no probado)
 
 - Que Safari reserve la memoria del motor (512 MB iniciales por proceso). En equipos con poca memoria podría fallar; la voz ligera usa la misma reserva. Corregirlo exige recompilar sherpa-onnx con menos memoria inicial.

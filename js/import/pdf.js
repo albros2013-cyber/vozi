@@ -1,6 +1,6 @@
 // VOZI — Importación de PDF: extracción del texto digital y OCR de páginas escaneadas.
 import * as pdfjsLib from '../../vendor/pdfjs/pdf.mjs';
-import { juntar, unirLineas, reconstruirParrafos } from '../tts/segmenter.js';
+import { juntar, unirLineas, reconstruirParrafos, quitarFragmentos } from '../tts/segmenter.js';
 import { reconocer, dibujarGris, canvasAPng } from './ocr.js';
 import { uid } from '../db.js';
 import { LIMITE_ARCHIVO } from './textos.js';
@@ -44,11 +44,14 @@ async function lineasDePagina(page) {
   const vp = page.getViewport({ scale: 1 });
   const tc = await page.getTextContent();
   const lineas = [];
+  let girados = 0;
   let cur = null;
   const cerrar = () => { if (cur && cur.text.trim()) lineas.push(cur); cur = null; };
   for (const it of tc.items) {
     if (!('str' in it)) continue;
     const [a, b, c, d, x, y] = it.transform;
+    // Texto girado (sellos laterales tipo «For the exclusive use of…», marcas de agua): no es parte del texto
+    if (it.str && Math.abs(b) > Math.abs(a) * 0.2) { girados++; continue; }
     const h = Math.hypot(c, d) || it.height || 10;
     // Llamada de nota (número volado pequeño): se conserva como superíndice y la voz la omite
     const volado = cur && it.str && /^\s*[\d*†]{1,3}\s*$/.test(it.str) && h < cur.hmax * 0.8 && y > cur.y + cur.hmax * 0.15 && y - cur.y < cur.hmax * 0.9;
@@ -71,7 +74,9 @@ async function lineasDePagina(page) {
   }
   cerrar();
   for (const l of lineas) l.text = l.text.replace(/\s+/g, ' ').trim();
-  return { lineas: lineas.filter((l) => l.text), ancho: vp.width, alto: vp.height };
+  // Fragmentos residuales de 1-3 letras en serie (restos de texto vertical) se descartan
+  const limpias = quitarFragmentos(lineas.filter((l) => l.text), (l) => l.text);
+  return { lineas: limpias, ancho: vp.width, alto: vp.height, girados };
 }
 
 const SUP = { 0: '⁰', 1: '¹', 2: '²', 3: '³', 4: '⁴', 5: '⁵', 6: '⁶', 7: '⁷', 8: '⁸', 9: '⁹', '*': '*', '†': '†' };

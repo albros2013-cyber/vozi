@@ -125,10 +125,11 @@ if (quiere('voz')) {
   const bb = await page.evaluate(() => window.__vozi.ctx.rep.tiempo);
   ok('El audio avanza más rápido a 1,5×', (bb - a) > 2.4, `${(bb - a).toFixed(2)} s en 2 s`);
   // Navegación por oración
-  const antes = await page.evaluate(() => window.__vozi.ctx.rep.posicionActual());
-  await page.click('#repAdelante'); await esperar(400);
-  const despues = await page.evaluate(() => window.__vozi.ctx.rep.posicionActual());
-  ok('Navegación a la oración siguiente', despues.idx === antes.idx + 1 || despues.idx > antes.idx, `${antes.idx} → ${despues.idx}`);
+  await page.evaluate(() => window.__vozi.ctx.rep.irA(0.2)); await esperar(300);
+  const antes = await page.evaluate(() => ({ ...window.__vozi.ctx.rep.posicionActual(), t: window.__vozi.ctx.rep.tramo.id }));
+  await page.click('#repAdelante'); await esperar(600);
+  const despues = await page.evaluate(() => ({ ...window.__vozi.ctx.rep.posicionActual(), t: window.__vozi.ctx.rep.tramo.id }));
+  ok('Navegación a la oración siguiente', despues.idx > antes.idx || despues.t !== antes.t, `${antes.idx} → ${despues.idx}`);
   await page.click('#repVel'); await page.click('.dialogo .opcion:has-text("1×")');
 
   // Esperar continuidad: debe pasar al siguiente tramo sin intervención
@@ -233,6 +234,7 @@ if (quiere('sesiones')) {
   await page.evaluate(async () => { await window.__vozi.db.put('docs', { id: 'dyo', title: 'Documento de Yo', createdAt: Date.now(), updatedAt: Date.now(), source: { type: 'texto' }, pages: 0, paragraphs: [{ id: 'y1', text: 'Hola.', page: null, kind: 'p' }] }); });
   await irA('ajustes');
   await page.click('#sec-sesiones summary');
+  await page.screenshot({ path: OUT + '/sesiones-antes.png' });
   await page.click('#sec-sesiones button:has-text("Añadir persona")');
   await page.fill('.dialogo input:not(.pin)', 'Ana');
   await page.fill('.dialogo input.pin', '1234');
@@ -294,6 +296,51 @@ if (quiere('encabezados')) {
   ok('Títulos del cuerpo conservados («Capítulo 2»)', /Capítulo 1/.test(txt) && /Capítulo 2/.test(txt) && /Capítulo 3/.test(txt));
   ok('Texto principal completo', (txt.match(/Este es el texto principal/g) || []).length === 4);
   await page.click('button:has-text("Descartar")'); await page.click('.dialogo .boton.peligro');
+}
+if (quiere('sello')) {
+  await importarArchivo(FIX + 'sello.pdf');
+  await page.waitForSelector('button:has-text("Importar")', { timeout: 30000 });
+  await page.click('.vista button.primario:has-text("Importar")');
+  await page.waitForSelector('.vista-revision', { timeout: 60000 });
+  const txt = await page.$$eval('.vista-revision textarea', (t) => t.map((x) => x.value).join('\n\n'));
+  ok('Sello lateral vertical omitido (sin letras sueltas)', !/exclusive/.test(txt) && !/^\S{1,3}$/m.test(txt) && /gated communities/.test(txt), txt.slice(0, 80));
+  await page.click('button:has-text("Descartar")'); await page.click('.dialogo .boton.peligro');
+  // Documento ya importado con letras sueltas: se repara al abrirlo
+  await page.evaluate(async () => {
+    await window.__vozi.db.put('docs', { id: 'dfrag', title: 'Con fragmentos', createdAt: Date.now(), updatedAt: Date.now(), source: { type: 'pdf' }, pages: 1,
+      paragraphs: ['Texto normal del caso.', 'oc', 'tu', 'br', 'e', 'Otro párrafo normal.'].map((t, i) => ({ id: 'f' + i, text: t, page: 1, kind: 'p' })) });
+  });
+  await irA('biblioteca'); await page.click('.doc-abrir:has-text("Con fragmentos")'); await page.waitForSelector('.texto-lectura .parrafo');
+  const n = await page.$$eval('.texto-lectura .parrafo', (e) => e.length);
+  ok('Documentos ya importados se reparan al abrirlos', n === 2, `${n} párrafos`);
+}
+if (quiere('rapidez')) {
+  await page.evaluate(async () => {
+    await window.__vozi.db.put('docs', { id: 'drap2', title: 'Rapidez', createdAt: Date.now(), updatedAt: Date.now(), source: { type: 'texto' }, pages: 0,
+      paragraphs: Array.from({ length: 8 }, (_, i) => ({ id: 'r' + i, text: `Párrafo número ${i + 1}. La competencia regional se intensificó durante el semestre y la empresa debió ajustar su estrategia comercial.`, page: null, kind: 'p' })) });
+  });
+  const errs0 = errores.length;
+  await irA('biblioteca'); await page.click('.doc-abrir:has-text("Rapidez")'); await page.waitForSelector('.texto-lectura .parrafo');
+  const t0 = Date.now();
+  await page.evaluate(() => { window.__vozi.L.escucharDesde(0); });
+  await esperar(1500);
+  await page.evaluate(() => { window.__vozi.L.escucharDesde(3); }); // el usuario cambia de idea durante la preparación
+  await esperar(300);
+  await page.evaluate(() => { window.__vozi.L.escucharDesde(4); });
+  await page.waitForFunction(() => window.__vozi.ctx.rep.reproduciendo, null, { timeout: 300000 });
+  const espera = (Date.now() - t0) / 1000;
+  const av = await textoAviso();
+  ok('Toques repetidos en «Escuchar desde aquí» sin errores', !/Object\.assign|undefined|null/.test(av) && errores.length === errs0, av);
+  const pos = await page.evaluate(() => window.__vozi.ctx.rep.posicionActual().pid);
+  ok('Empieza en el último párrafo elegido', pos === 'r4', `${pos}, primera voz en ${espera.toFixed(1)} s`);
+  await page.evaluate(() => window.__vozi.ctx.rep.pausar());
+  // Volver a un párrafo ya preparado: debe ser inmediato (sin sintetizar)
+  await page.evaluate(() => { window.__vozi.ctx.rep.descargar(); });
+  const t1 = Date.now();
+  await page.evaluate(() => { window.__vozi.L.escucharDesde(4); });
+  await page.waitForFunction(() => window.__vozi.ctx.rep.reproduciendo, null, { timeout: 60000 });
+  ok('Volver a un párrafo con audio guardado es inmediato', (Date.now() - t1) < 2500, `${Date.now() - t1} ms`);
+  await page.evaluate(() => window.__vozi.ctx.rep.pausar());
 }
 if (quiere('notas')) {
   await importarArchivo(FIX + 'notas.pdf');

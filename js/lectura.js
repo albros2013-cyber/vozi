@@ -1,11 +1,11 @@
 // VOZI — Orquestación de la escucha: preparar tramos, reproducir de forma continua,
 // preparar el siguiente tramo mientras se escucha y guardar el punto de lectura.
 import { ctx, guardarAjustes } from './estado.js';
-import { db } from './db.js';
+import { db, actualizarMeta } from './db.js';
 import { vozPorId } from './voices.js';
 import { cargarManifiesto, estadoPaquete } from './resources.js';
 import { idiomasDeParrafos } from './tts/idioma.js';
-import { planificarTramo, buscarTramoGuardado, prepararTramo } from './tts/tramos.js';
+import { planificarTramo, buscarTramoGuardado, prepararTramo, hashParrafos } from './tts/tramos.js';
 import { aviso, formatoRestante, formatoTiempo, h, dialogo } from './ui.js';
 
 const ev = new EventTarget();
@@ -43,6 +43,12 @@ export async function vozLista({ necesitaEn = false, necesitaEs = true } = {}) {
   return { ok: faltan.length === 0, voz, pack, faltan, soloEn: !necesitaEs };
 }
 
+// Dónde empieza el tramo que sigue a `rec` (párrafo y oración)
+function siguientePos(rec) {
+  if (rec.completo === false) return { p: rec.fin, s: (rec.finS || 0) + 1 };
+  return { p: rec.fin + 1, s: 0 };
+}
+
 function indicePorPid(doc, pid) { return doc.paragraphs.findIndex((p) => p.id === pid); }
 
 export function prepararActivo() { return !!est.preparando; }
@@ -61,9 +67,15 @@ async function asegurarMotor(pack, alEstado) {
 }
 
 // Prepara un tramo (o lo recupera si ya estaba guardado)
-async function obtenerTramo(doc, inicioIdx, minutos, { visible, signal }) {
+async function obtenerTramo(doc, inicioIdx, minutos, { visible, signal, onPlan, desdeOracion = 0, rapido = false }) {
+  const propio = visible ? est.preparando : null;
+  const actualizar = (cambios) => {
+    if (!propio) return;
+    Object.assign(propio, cambios);
+    if (est.preparando === propio) emitir('preparacion', propio);
+  };
   const plan = planificarTramo(doc, inicioIdx, minutos, ctx.ajustes.cps, ctx.ajustes.diccionario,
-    { leerNotasPie: !!ctx.ajustes.leerNotasPie, idiomas: idiomasDeParrafos(doc) });
+    { leerNotasPie: !!ctx.ajustes.leerNotasPie, idiomas: idiomasDeParrafos(doc), desdeOracion, rapido });
   if (!plan.items.length) return null;
   const { ok, voz, pack, faltan } = await vozLista({ necesitaEn: plan.items.some((x) => x.lang === 'en'), necesitaEs: plan.items.some((x) => x.lang !== 'en') });
   if (!ok) {
@@ -73,16 +85,25 @@ async function obtenerTramo(doc, inicioIdx, minutos, { visible, signal }) {
   }
   const guardado = await buscarTramoGuardado(doc, plan, voz, ctx.ajustes);
   if (guardado) return guardado;
+  if (onPlan) onPlan(plan);
   const progreso = (p) => {
-    if (visible) { Object.assign(est.preparando, p); emitir('preparacion', est.preparando); }
-    else if (est.siguiente) { est.siguiente.fraccion = p.fraccion; emitir('siguiente', est.siguiente); }
+    if (visible) actualizar(p);
+    else if (est.siguiente) {
+      est.siguiente.fraccion = p.fraccion; emitir('siguiente', est.siguiente);
+      if (est.siguiente.visible && est.preparando && est.preparando.deFondo) { Object.assign(est.preparando, p); emitir('preparacion', est.preparando); }
+    }
   };
-  if (visible) emitir('preparacion', Object.assign(est.preparando, { fase: 'motor', fraccion: 0 }));
+  if (visible) actualizar({ fase: 'motor', fraccion: 0 });
   await asegurarMotor(pack, (m) => {
-    if (visible) emitir('preparacion', Object.assign(est.preparando, { fase: 'motor', fraccion: 0, carga: m.progress }));
+    if (visible) actualizar({ fase: 'motor', fraccion: 0, carga: m.progress });
   });
-  if (visible) emitir('preparacion', Object.assign(est.preparando, { fase: 'voz', fraccion: 0, restanteSeg: null }));
+  if (visible) actualizar({ fase: 'voz', fraccion: 0, restanteSeg: null });
   const rec = await prepararTramo({ motor: ctx.motor, doc, plan, voz, pack, ajustes: ctx.ajustes, onProgreso: progreso, signal });
+  // Velocidad real de preparación en este dispositivo (para dimensionar el siguiente tramo)
+  if (rec.segSintesis && rec.duracion > 3) {
+    const r = rec.segSintesis / rec.duracion;
+    guardarAjustes({ rtf: Math.round(((ctx.ajustes.rtf || r) * 0.6 + r * 0.4) * 100) / 100 });
+  }
   // Ajustar la estimación de velocidad de habla con lo medido
   if (rec.cpsMedido && isFinite(rec.cpsMedido)) {
     const cps = Math.round((ctx.ajustes.cps * 0.6 + rec.cpsMedido * 0.4) * 10) / 10;
@@ -91,27 +112,79 @@ async function obtenerTramo(doc, inicioIdx, minutos, { visible, signal }) {
   return rec;
 }
 
+// Busca un tramo ya preparado que CONTENGA el párrafo (no solo que empiece en él) y siga válido
+async function tramoGuardadoQueContiene(doc, pid) {
+  const lista = await db.byIndex('audio', 'docId', doc.id);
+  const vozEs = ctx.ajustes.vozId, vozEn = ctx.ajustes.vozIdEn || 'en-emma';
+  const candidatos = lista.filter((a) => a.parrafos && a.parrafos.includes(pid) && a.parrafosHash && a.tiempos && a.tiempos.some((t) => t.pid === pid && t.s === 0)
+    && (a.vozEsId || String(a.vozId).split('+')[0]) === vozEs && (!a.vozEnId || a.vozEnId === vozEn)
+    && (a.numSteps || 5) === (ctx.ajustes.numSteps || 5) && !!a.notasPie === !!ctx.ajustes.leerNotasPie)
+    .sort((x, y) => y.creado - x.creado);
+  for (const a of candidatos) if (hashParrafos(doc, a.parrafos) === a.parrafosHash) return a;
+  return null;
+}
+
 // Punto de entrada: escuchar el documento actual desde un párrafo
-export async function escucharDesde(pidx, { reproducir = true } = {}) {
+export async function escucharDesde(pidx, { reproducir = true, desdeOracion = 0 } = {}) {
   const doc = ctx.doc;
   if (!doc) return;
   ctx.rep.desbloquear();
-  // ¿Está dentro del tramo cargado?
   const pid = doc.paragraphs[pidx] && doc.paragraphs[pidx].id;
+  emitir('objetivo', { pid, s: 0 }); // resaltar al instante el párrafo elegido
+  // 1) ¿Está dentro del tramo cargado? → salto inmediato
   if (ctx.rep.tramo && ctx.rep.tramo.docId === doc.id && ctx.rep.irAParrafo(pid)) {
     if (reproducir) ctx.rep.reproducir();
     return;
   }
+  // 2) ¿Hay audio ya preparado que lo contenga? → se usa sin volver a sintetizar
+  const guardado = await tramoGuardadoQueContiene(doc, pid).catch(() => null);
+  if (guardado) {
+    cancelarPreparacion();
+    try {
+      await ctx.rep.cargar(guardado, 0);
+      ctx.rep.irAParrafo(pid);
+      if (reproducir) await ctx.rep.reproducir();
+      emitir('tramo', guardado);
+      programarSiguiente(guardado);
+      return;
+    } catch { /* si el audio falla, se prepara de nuevo */ }
+  }
+  // 3) ¿Se está preparando en segundo plano el tramo que lo contiene? → esperar ese trabajo, no empezar de cero
+  const sig = est.siguiente;
+  if (sig && sig.docId === doc.id && sig.parrafos && sig.parrafos.includes(pid) && !sig.error && !(sig.parrafos[0] === pid && sig.desdeS > 0)) {
+    cancelarPreparacion();
+    est.preparando = { abort: sig.abort, fraccion: sig.fraccion || 0, restanteSeg: null, fase: 'voz', inicio: pidx, deFondo: true };
+    sig.visible = true;
+    emitir('preparacion', est.preparando);
+    const esperando = est.preparando;
+    const rec = await sig.promesa;
+    if (est.preparando === esperando) { est.preparando = null; emitir('preparacion', null); }
+    if (rec && ctx.doc === doc) {
+      est.siguiente = null;
+      await ctx.rep.cargar(rec, 0);
+      ctx.rep.irAParrafo(pid);
+      if (reproducir) await ctx.rep.reproducir();
+      emitir('tramo', rec);
+      programarSiguiente(rec);
+      return;
+    }
+  }
+  // 4) Preparar desde aquí: primero un tramo corto para empezar pronto
   cancelarPreparacion();
   cancelarSiguiente();
   const abort = new AbortController();
   est.preparando = { abort, fraccion: 0, restanteSeg: null, fase: 'inicio', inicio: pidx };
   emitir('preparacion', est.preparando);
-  const minutos = ctx.ajustes.primerTramoCorto ? Math.min(1, ctx.ajustes.tramoMin) : ctx.ajustes.tramoMin;
+  // Inicio rápido: la primera oración sola (~5-15 s de audio) para oír la voz cuanto antes;
+  // los tramos siguientes crecen según la velocidad real del dispositivo.
+  const rapido = ctx.ajustes.primerTramoCorto !== false;
+  const minutos = rapido ? 0.15 : ctx.ajustes.tramoMin;
+  const propio = est.preparando;
+  const soltar = () => { if (est.preparando === propio) { est.preparando = null; emitir('preparacion', null); } };
   try {
-    const rec = await obtenerTramo(doc, pidx, minutos, { visible: true, signal: abort.signal });
-    est.preparando = null;
-    emitir('preparacion', null);
+    const rec = await obtenerTramo(doc, pidx, minutos, { visible: true, signal: abort.signal, desdeOracion, rapido });
+    soltar();
+    if (abort.signal.aborted) return;
     if (!rec) { aviso('No hay más texto para leer desde aquí.'); return; }
     if (ctx.doc !== doc) return;
     await ctx.rep.cargar(rec, 0);
@@ -119,10 +192,33 @@ export async function escucharDesde(pidx, { reproducir = true } = {}) {
     emitir('tramo', rec);
     programarSiguiente(rec);
   } catch (e) {
-    est.preparando = null;
-    emitir('preparacion', null);
+    soltar();
+    if (est.preparando && est.preparando !== propio && e && e.name === 'AbortError') return; // reemplazada por otra petición
     manejarError(e);
   }
+}
+
+// Precarga la voz en memoria para que el primer «Escuchar» no espere la carga del modelo
+export async function precalentar() {
+  try {
+    if (!ctx.doc || ctx.motor.listo) return;
+    const { ok, pack } = await vozLista();
+    if (!ok) return;
+    await ctx.motor.preparar(pack, null, Math.max(1, Math.min(2, ctx.ajustes.procesos || 1)));
+    // Preparar ya el comienzo en el punto guardado: al tocar ▶ suena casi de inmediato
+    const doc = ctx.doc;
+    if (!doc || ctx.rep.tramo || est.preparando || est.siguiente) return;
+    const pr = await db.get('progress', doc.id);
+    let pidx = pr ? indicePorPid(doc, pr.pid) : 0;
+    if (pidx < 0) pidx = 0;
+    if (await tramoGuardadoQueContiene(doc, doc.paragraphs[pidx].id)) return;
+    const abort = new AbortController();
+    const sig = { desde: 'pre:' + pidx, abort, fraccion: 0, rec: null, docId: doc.id, parrafos: null, desdeS: 0 };
+    sig.promesa = obtenerTramo(doc, pidx, 0.15, { visible: false, signal: abort.signal, rapido: true, onPlan: (p) => { sig.parrafos = p.parrafos; } })
+      .then((r) => { sig.rec = r; return r; })
+      .catch((e) => { sig.error = e; return null; });
+    est.siguiente = sig;
+  } catch { /* se reintentará al escuchar */ }
 }
 
 function manejarError(e) {
@@ -136,13 +232,18 @@ function manejarError(e) {
 function programarSiguiente(rec) {
   if (!ctx.ajustes.prepararSiguiente) return;
   const doc = ctx.doc;
-  const desde = rec.fin + 1;
+  const { p: desde, s: desdeS } = siguientePos(rec);
   if (!doc || desde >= doc.paragraphs.length) return;
-  if (est.siguiente && est.siguiente.desde === desde) return;
+  const clave = desde + ':' + desdeS;
+  if (est.siguiente && est.siguiente.desde === clave) return;
   cancelarSiguiente();
   const abort = new AbortController();
-  const sig = { desde, abort, fraccion: 0, rec: null, docId: doc.id };
-  sig.promesa = obtenerTramo(doc, desde, ctx.ajustes.tramoMin, { visible: false, signal: abort.signal })
+  const sig = { desde: clave, abort, fraccion: 0, rec: null, docId: doc.id, parrafos: null };
+  // Tamaño adaptativo: que el siguiente tramo alcance a estar listo antes de que termine el actual
+  const rtf = Math.max(0.25, ctx.ajustes.rtf || 1);
+  const minutos = Math.max(0.5, Math.min(ctx.ajustes.tramoMin, (rec.duracion * 0.85) / rtf / 60));
+  // Mientras el dispositivo no sea mucho más rápido que el tiempo real, los tramos se cortan entre oraciones
+  sig.promesa = obtenerTramo(doc, desde, minutos, { visible: false, signal: abort.signal, desdeOracion: desdeS, rapido: rtf > 0.6, onPlan: (p) => { sig.parrafos = p.parrafos; sig.desdeS = desdeS; } })
     .then((r) => { sig.rec = r; emitir('siguiente', sig); return r; })
     .catch((e) => { if (e.name !== 'AbortError') console.warn('Siguiente tramo:', e); sig.error = e; emitir('siguiente', sig); return null; });
   est.siguiente = sig;
@@ -154,14 +255,15 @@ export async function alTerminarTramo() {
   const doc = ctx.doc;
   const actual = ctx.rep.tramo;
   if (!doc || !actual) return;
-  const desde = actual.fin + 1;
+  const { p: desde, s: desdeS } = siguientePos(actual);
+  const clave = desde + ':' + desdeS;
   if (desde >= doc.paragraphs.length) {
     emitir('finDocumento');
     aviso('Llegaste al final del documento.');
     return;
   }
   let rec = null;
-  if (est.siguiente && est.siguiente.desde === desde && est.siguiente.docId === doc.id) {
+  if (est.siguiente && est.siguiente.desde === clave && est.siguiente.docId === doc.id) {
     if (!est.siguiente.rec) {
       est.esperandoSiguiente = true;
       emitir('esperando', true);
@@ -171,7 +273,7 @@ export async function alTerminarTramo() {
     } else rec = est.siguiente.rec;
     est.siguiente = null;
   }
-  if (!rec) { await escucharDesde(desde); return; }
+  if (!rec) { await escucharDesde(desde, { desdeOracion: desdeS }); return; }
   if (ctx.doc !== doc) return;
   await ctx.rep.cargar(rec, 0);
   await ctx.rep.reproducir();
@@ -193,7 +295,10 @@ export async function guardarPosicion() {
     docId: doc.id, pid: pos.pid, pidx, s: pos.s, audioId: ctx.rep.tramo ? ctx.rep.tramo.id : null,
     tiempo: ctx.rep.tiempo, actualizado: Date.now(),
   });
-  if (doc.ultimaLectura !== Date.now()) { doc.ultimaLectura = Date.now(); doc.progresoPct = Math.round(100 * Math.max(0, pidx) / Math.max(1, doc.paragraphs.length - 1)); db.put('docs', doc); }
+  // Solo la ficha ligera: no se reescribe el documento completo en cada avance
+  doc.ultimaLectura = Date.now();
+  doc.progresoPct = Math.round(100 * Math.max(0, pidx) / Math.max(1, doc.paragraphs.length - 1));
+  await actualizarMeta(doc.id, { ultimaLectura: doc.ultimaLectura, progresoPct: doc.progresoPct });
 }
 
 // Al abrir un documento: recuperar el último punto (y su audio si sigue siendo válido)

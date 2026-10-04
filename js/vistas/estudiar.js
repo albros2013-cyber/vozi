@@ -1,6 +1,6 @@
 // VOZI — Estudio: notas y citas, tarjetas de repaso, marcadores, temporizador y exportación.
 import { ctx } from '../estado.js';
-import { db, uid, getSetting, setSetting } from '../db.js';
+import { db, uid, getSetting, setSetting, listarDocs } from '../db.js';
 import { h, aviso, dialogo, confirmar, pedirTexto, fecha, compartirODescargar } from '../ui.js';
 import { ir, abrirDocumento } from '../app.js';
 
@@ -9,13 +9,13 @@ let pestana = 'notas';
 export async function vistaEstudiar(main, opciones = {}) {
   document.getElementById('cabeceraTitulo').textContent = 'Estudiar';
   if (opciones.pestana) pestana = opciones.pestana;
-  const docs = (await db.all('docs')).sort((a, b) => (b.ultimaLectura || b.updatedAt) - (a.ultimaLectura || a.updatedAt));
+  const docs = (await listarDocs()).sort((a, b) => (b.ultimaLectura || b.updatedAt) - (a.ultimaLectura || a.updatedAt));
   const cont = h('section', { class: 'vista vista-estudiar' });
   main.append(cont);
   if (!docs.length) { cont.append(h('div', { class: 'vacio' }, h('p', {}, 'Importa un documento para tomar notas y crear tarjetas.'), h('button', { class: 'boton primario', onclick: () => ir('importar') }, 'Importar'))); return; }
-  let doc = ctx.doc || docs[0];
+  let doc = ctx.doc || await db.get('docs', docs[0].id);
   const selector = h('select', { class: 'campo', 'aria-label': 'Documento' }, docs.map((d) => h('option', { value: d.id, selected: d.id === doc.id }, d.title)));
-  selector.addEventListener('change', async () => { doc = docs.find((d) => d.id === selector.value); pintar(); });
+  selector.addEventListener('change', async () => { doc = (ctx.doc && ctx.doc.id === selector.value) ? ctx.doc : await db.get('docs', selector.value); pintar(); });
   const tabs = h('div', { class: 'pestanas-internas', role: 'tablist' });
   const cuerpo = h('div', { class: 'cuerpo-estudio' });
   const TABS = [['notas', 'Notas y citas'], ['tarjetas', 'Tarjetas'], ['marcadores', 'Marcadores'], ['temporizador', 'Temporizador']];

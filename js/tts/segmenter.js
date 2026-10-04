@@ -100,3 +100,18 @@ function esCompuesto(a, b) {
   // Heurística: ambas partes con terminaciones típicas de adjetivo/sustantivo completos ("económico-social")
   return /(ico|ica|al|ivo|iva|ario|aria|ano|ana)$/.test(a) && /(ico|ica|al|ivo|iva|ario|aria|ano|ana|os|as)$/.test(b) && a.length > 4 && b.length > 4;
 }
+
+// Quita series de 3 o más líneas/párrafos seguidos de 1 a 3 caracteres (letras sueltas de texto vertical)
+export function quitarFragmentos(items, texto) {
+  const corto = (it) => texto(it).replace(/\s/g, '').length <= 3;
+  const fuera = new Set();
+  for (let i = 0; i < items.length;) {
+    if (!corto(items[i])) { i++; continue; }
+    let j = i;
+    while (j < items.length && corto(items[j])) j++;
+    if (j - i >= 3) for (let k = i; k < j; k++) fuera.add(k);
+    i = j;
+  }
+  return items.filter((_, k) => !fuera.has(k));
+}
+

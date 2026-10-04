@@ -1,13 +1,13 @@
 // VOZI — Biblioteca de lecturas guardadas.
 import { ctx } from '../estado.js';
-import { db, borrarDocumento } from '../db.js';
+import { db, borrarDocumento , listarDocs } from '../db.js';
 import { h, fecha, confirmar, pedirTexto, aviso } from '../ui.js';
 import { ir, abrirDocumento } from '../app.js';
 import { soltarDocumento } from '../lectura.js';
 
 export async function vistaBiblioteca(main) {
   document.getElementById('cabeceraTitulo').textContent = 'Biblioteca';
-  const docs = await db.all('docs');
+  const docs = await listarDocs();
   docs.sort((a, b) => (b.ultimaLectura || b.updatedAt || 0) - (a.ultimaLectura || a.updatedAt || 0));
   const audios = await db.all('audio');
   const audioPorDoc = new Map();
@@ -44,7 +44,7 @@ export async function vistaBiblioteca(main) {
           h('span', { class: 'doc-info' },
             h('span', { class: 'doc-titulo' }, d.title),
             h('span', { class: 'doc-meta' },
-              [d.pages ? `${d.pages} pág.` : null, `${d.paragraphs.length} párrafos`, d.ultimaLectura ? `leído ${fecha(d.ultimaLectura)}` : `añadido ${fecha(d.createdAt)}`,
+              [d.pages ? `${d.pages} pág.` : null, `${d.npar} párrafos`, d.ultimaLectura ? `leído ${fecha(d.ultimaLectura)}` : `añadido ${fecha(d.createdAt)}`,
                 min ? `${Math.round(min / 60)} min de audio guardado` : null].filter(Boolean).join(' · ')),
             h('span', { class: 'progreso', role: 'progressbar', 'aria-valuenow': pct, 'aria-valuemin': 0, 'aria-valuemax': 100, 'aria-label': `Avance ${pct} %` },
               h('span', { style: { width: pct + '%' } })))),
@@ -60,7 +60,9 @@ export async function vistaBiblioteca(main) {
     h('p', { class: 'nota-suave' }, 'Todo se guarda solo en este dispositivo. Borrar los datos del navegador o de la app eliminaría tus lecturas: usa Ajustes → Copia de seguridad.'));
   main.append(cont);
 
-  async function opcionesDoc(d) {
+  async function opcionesDoc(meta) {
+    const d = await db.get('docs', meta.id);
+    if (!d) return;
     const { dialogo } = await import('../ui.js');
     const r = await dialogo({
       titulo: d.title,

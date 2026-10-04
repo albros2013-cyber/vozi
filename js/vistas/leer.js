@@ -22,40 +22,50 @@ export async function vistaLeer(main, opciones = {}) {
     btn('foco', 'Modo concentración', () => alternarFoco()),
     btn('editar', 'Editar texto', () => editarTexto()));
 
-  const texto = h('article', { class: 'texto-lectura', lang: 'es', 'aria-label': 'Texto del documento' });
+  // El texto pintado se reutiliza al volver a «Leer» (no se reconstruyen miles de párrafos)
+  const marcadores = new Set((await db.byIndex('bookmarks', 'docId', doc.id)).map((b) => b.pid));
+  const conNotas = new Set((await db.byIndex('notes', 'docId', doc.id)).map((n) => n.pid));
+  let texto;
+  const cache = ctx.cacheLector;
+  if (cache && cache.docId === doc.id && cache.version === doc.updatedAt && cache.n === doc.paragraphs.length) {
+    texto = cache.texto;
+    for (const el of texto.querySelectorAll('.parrafo')) {
+      el.classList.toggle('con-marcador', marcadores.has(el.dataset.pid));
+      el.classList.toggle('con-nota', conNotas.has(el.dataset.pid));
+    }
+  } else {
+    texto = h('article', { class: 'texto-lectura', lang: 'es', 'aria-label': 'Texto del documento' });
+    const frag = document.createDocumentFragment();
+    let pagina = undefined;
+    doc.paragraphs.forEach((p, i) => {
+      if (p.page != null && p.page !== pagina) {
+        pagina = p.page;
+        frag.append(h('div', { class: 'marca-pagina', id: `pag-${p.page}`, 'data-page': p.page }, `Página ${p.page}`, p.ocr ? h('span', { class: 'etiqueta' }, 'OCR') : null));
+      }
+      frag.append(h(p.kind === 'h' ? 'h3' : 'p', {
+        class: 'parrafo' + (p.kind === 'pie' ? ' es-pie' : '') + (marcadores.has(p.id) ? ' con-marcador' : '') + (conNotas.has(p.id) ? ' con-nota' : ''),
+        'data-pid': p.id, 'data-idx': i, tabindex: '-1',
+      }, p.text));
+    });
+    texto.append(frag);
+    texto.addEventListener('click', (e) => {
+      const p = e.target.closest('.parrafo');
+      if (!p) return;
+      const sel = window.getSelection();
+      if (sel && !sel.isCollapsed && sel.toString().trim()) return; // está seleccionando texto
+      menuParrafo(+p.dataset.idx);
+    });
+    ctx.cacheLector = { docId: doc.id, version: doc.updatedAt, n: doc.paragraphs.length, texto };
+  }
   const barraBusqueda = h('div', { class: 'barra-busqueda', hidden: true });
   const cont = h('section', { class: 'vista vista-leer' }, barraBusqueda, texto);
   main.append(cont);
+  const actualPrevio = texto.querySelector('.parrafo.actual');
 
-  // Pintar párrafos (con marcas de página)
-  const frag = document.createDocumentFragment();
-  let pagina = undefined;
-  const marcadores = new Set((await db.byIndex('bookmarks', 'docId', doc.id)).map((b) => b.pid));
-  const conNotas = new Set((await db.byIndex('notes', 'docId', doc.id)).map((n) => n.pid));
-  doc.paragraphs.forEach((p, i) => {
-    if (p.page != null && p.page !== pagina) {
-      pagina = p.page;
-      frag.append(h('div', { class: 'marca-pagina', id: `pag-${p.page}`, 'data-page': p.page }, `Página ${p.page}`, p.ocr ? h('span', { class: 'etiqueta' }, 'OCR') : null));
-    }
-    const el = h(p.kind === 'h' ? 'h3' : 'p', {
-      class: 'parrafo' + (p.kind === 'pie' ? ' es-pie' : '') + (marcadores.has(p.id) ? ' con-marcador' : '') + (conNotas.has(p.id) ? ' con-nota' : ''),
-      'data-pid': p.id, 'data-idx': i, tabindex: '-1',
-    }, p.text);
-    frag.append(el);
-  });
-  texto.append(frag);
-
-  estadoVista = { texto, barraBusqueda, actualPid: null, actualS: null, ultimoScrollUsuario: 0, busqueda: null };
+  estadoVista = { texto, barraBusqueda, actualPid: actualPrevio ? actualPrevio.dataset.pid : null, actualS: null, ultimoScrollUsuario: 0, busqueda: null };
   ctx.vistas.leer = { parrafoVisible };
 
   // Interacciones
-  texto.addEventListener('click', (e) => {
-    const p = e.target.closest('.parrafo');
-    if (!p) return;
-    const sel = window.getSelection();
-    if (sel && !sel.isCollapsed && sel.toString().trim()) return; // está seleccionando texto
-    menuParrafo(+p.dataset.idx);
-  });
   const btnCita = h('button', { class: 'boton-cita', hidden: true, onmousedown: (e) => e.preventDefault(), onclick: () => guardarCita() }, '❝ Guardar como cita');
   cont.append(btnCita);
   const onSel = () => {

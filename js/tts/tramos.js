@@ -18,11 +18,13 @@ export function hashTexto(s) {
 
 // Planifica un tramo a partir del párrafo `inicio`. Termina en un final de párrafo cuando
 // la duración estimada alcanza `minutos`.
-export function planificarTramo(doc, inicio, minutos, cps, diccionario, { leerNotasPie = false, idiomas = null } = {}) {
+export function planificarTramo(doc, inicio, minutos, cps, diccionario, { leerNotasPie = false, idiomas = null, desdeOracion = 0, rapido = false } = {}) {
+  // rapido: inicio inmediato — la primera unidad es una sola oración y el tramo puede cortarse
+  // entre oraciones (no solo al final de un párrafo).
   const objetivo = minutos * 60;
   const items = [];
   const parrafos = [];
-  let est = 0;
+  let est = 0, finS = 0, completo = true;
   for (let i = inicio; i < doc.paragraphs.length; i++) {
     const p = doc.paragraphs[i];
     if (!p.text.trim()) continue;
@@ -35,6 +37,7 @@ export function planificarTramo(doc, inicio, minutos, cps, diccionario, { leerNo
     let grupo = null;
     const cerrarGrupo = () => { if (grupo) unidades.push(grupo); grupo = null; };
     oraciones.forEach((o, si) => {
+      if (i === inicio && si < desdeOracion) return;
       const original = p.text.slice(o.start, o.end);
       const dicho = lang === 'en' ? normalizarEn(original, { diccionario }) : normalizar(original, { diccionario });
       if (!dicho.trim()) return;
@@ -44,6 +47,8 @@ export function planificarTramo(doc, inicio, minutos, cps, diccionario, { leerNo
         partes.forEach((t, pi) => unidades.push({ text: t, oraciones: [{ s: si, n: t.length }], s: si, pi, ultimaParte: pi === partes.length - 1 }));
         return;
       }
+      const primeraSola = rapido && !items.length && !unidades.length && !grupo;
+      if (primeraSola) { unidades.push({ text: dicho, oraciones: [{ s: si, n: dicho.length }], s: si, pi: 0, ultimaParte: true }); return; }
       if (grupo && grupo.text.length + 1 + dicho.length <= MAX_GRUPO) {
         grupo.text += ' ' + dicho;
         grupo.oraciones.push({ s: si, n: dicho.length + 1 });
@@ -53,21 +58,32 @@ export function planificarTramo(doc, inicio, minutos, cps, diccionario, { leerNo
       }
     });
     cerrarGrupo();
-    unidades.forEach((u, ui) => {
+    let cortado = false;
+    for (let ui = 0; ui < unidades.length; ui++) {
+      const u = unidades[ui];
       const ultima = ui === unidades.length - 1;
       const pausa = ultima ? (p.kind === 'h' ? PAUSAS.titulo : PAUSAS.parrafo) : (u.ultimaParte ? PAUSAS.oracion : PAUSAS.parte);
       items.push({ id: `${p.id}|${u.s}|${u.pi}`, pid: p.id, pidx: i, s: u.s, oraciones: u.oraciones, text: u.text, pausa, lang });
       est += u.text.length / cps + pausa;
-    });
-    parrafos.push(p.id);
+      finS = u.oraciones[u.oraciones.length - 1].s;
+      if (rapido && est >= objetivo && !ultima && u.ultimaParte) { cortado = true; break; }
+    }
+    if (unidades.length) parrafos.push(p.id);
+    completo = !cortado;
     if (est >= objetivo) break;
   }
   const textHash = hashTexto(items.map((x) => x.lang + ':' + x.text).join('\n'));
-  return { items, parrafos, inicio, fin: items.length ? items[items.length - 1].pidx : inicio, estimadoSeg: est, textHash };
+  const fin = items.length ? items[items.length - 1].pidx : inicio;
+  return { items, parrafos, inicio, desdeOracion, fin, finS, completo, estimadoSeg: est, textHash };
+}
+
+export function hashParrafos(doc, ids) {
+  const mapa = new Map(doc.paragraphs.map((p) => [p.id, p]));
+  return hashTexto(ids.map((id) => { const p = mapa.get(id); return p ? p.kind + ':' + p.text : '∅'; }).join('\n') + '|' + (doc.idioma || 'auto'));
 }
 
 export function claveTramo(doc, plan, voz, ajustes) {
-  return [doc.id, voz.id, plan.parrafos[0], plan.parrafos.length, plan.textHash, ajustes.numSteps || 5, ajustes.velocidadVoz || 1].join(':');
+  return [doc.id, voz.id, plan.parrafos[0] + '@' + (plan.desdeOracion || 0) + '-' + plan.finS + (plan.completo ? 'c' : ''), plan.parrafos.length, plan.textHash, ajustes.numSteps || 5, ajustes.velocidadVoz || 1].join(':');
 }
 
 export async function buscarTramoGuardado(doc, plan, voz, ajustes) {
@@ -190,8 +206,10 @@ export async function prepararTramo({ motor, doc, plan, voz, pack, ajustes, onPr
   const chars = plan.items.reduce((s, x) => s + x.text.length, 0);
   const rec = {
     id: uid('au'), docId: doc.id, clave: claveTramo(doc, plan, voz, ajustes), vozId: voz.id,
-    inicio: plan.inicio, fin: plan.fin, parrafos: plan.parrafos, tiempos, duracion, sampleRate: sr,
+    inicio: plan.inicio, desdeOracion: plan.desdeOracion || 0, fin: plan.fin, finS: plan.finS, completo: plan.completo !== false, parrafos: plan.parrafos, tiempos, duracion, sampleRate: sr,
     bytes: blob.size, creado: Date.now(), segSintesis, cpsMedido: chars / Math.max(0.1, duracion),
+    vozEsId: voz.vozEsId || voz.id, vozEnId: voz.vozEnId || null, numSteps: ajustes.numSteps || 5, notasPie: !!ajustes.leerNotasPie,
+    parrafosHash: hashParrafos(doc, plan.parrafos),
   };
   await db.put('audioBlobs', { id: rec.id, blob });
   await db.put('audio', rec);
