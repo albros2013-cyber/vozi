@@ -432,10 +432,29 @@ if (typeof document !== 'undefined') document.addEventListener('visibilitychange
 
 export function detenerTodo() { if (todo.activo && todo.abort) todo.abort.abort(); }
 
-export async function prepararTodo({ desdeInicio = false } = {}) {
+// Desde qué avance se puede empezar a escuchar sin alcanzar a la preparación:
+// con factor r (segundos de preparación por segundo de audio) basta 1 − 1/r; nunca más del 50 %.
+export function umbralEscucha() {
+  const r = ctx.ajustes.rtf || 1;
+  return Math.min(0.5, Math.max(0.08, 1 - 1 / r + 0.1));
+}
+
+export async function prepararTodo({ desdeInicio = false, autoEscuchar = false } = {}) {
   const doc = ctx.doc;
   if (!doc || todo.activo) return;
   let pos = await puntoDePartida(doc, desdeInicio);
+  // Dónde empezaría a sonar: el principio, o donde quedó la lectura
+  const pr = desdeInicio ? null : await db.get('progress', doc.id);
+  const inicioEscucha = desdeInicio ? { p: 0, s: 0 } : { p: Math.max(0, pr ? indicePorPid(doc, pr.pid) : pos.p), s: 0 };
+  let escuchando = !autoEscuchar;
+  const empezar = () => {
+    if (escuchando || ctx.doc !== doc) return;
+    escuchando = true;
+    if (ctx.rep.reproduciendo) return;
+    if (!desdeInicio && ctx.rep.tramo && ctx.rep.tramo.docId === doc.id) ctx.rep.reproducir();
+    else escucharDesde(inicioEscucha.p, { desdeOracion: inicioEscucha.s });
+    aviso('Ya preparé lo suficiente: empieza la lectura mientras termino el resto.', { ms: 5000 });
+  };
   const abort = new AbortController();
   const total = Math.max(1, caracteresLeibles(doc, pos.p));
   const t0 = performance.now();
@@ -449,6 +468,7 @@ export async function prepararTodo({ desdeInicio = false } = {}) {
     todo.restanteSeg = todo.fraccion > 0.02 && seg > 8 ? seg * (1 - todo.fraccion) / todo.fraccion
       : (caracteresLeibles(doc, pos.p) / Math.max(5, ctx.ajustes.cps || 14)) * (ctx.ajustes.rtf || 1);
     emitir('todo', todo);
+    if (!escuchando && todo.fraccion >= umbralEscucha()) empezar();
   };
   let fallo = null;
   try {
@@ -481,6 +501,7 @@ export async function prepararTodo({ desdeInicio = false } = {}) {
   const cancelado = abort.signal.aborted || (fallo && fallo.name === 'AbortError');
   const completo = !fallo && !cancelado && pos.p >= doc.paragraphs.length;
   Object.assign(todo, { activo: false, abort: null, actual: null, fraccion: completo ? 1 : todo.fraccion });
+  if (!fallo && !cancelado) empezar(); // documento corto: terminó antes del umbral
   try { if (todo.wake) await todo.wake.release(); } catch (e) { /* nada */ }
   todo.wake = null;
   emitir('todo', todo);

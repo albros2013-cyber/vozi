@@ -238,6 +238,8 @@ async function dialogoPrepararTodo() {
   if (!e) return;
   const e0 = await L.estimarTodo({ desdeInicio: true });
   const poco = e.libre != null && e.libre < e.bytes * 1.2;
+  const auto = h('input', { type: 'checkbox', checked: true });
+  const umbral = Math.round(L.umbralEscucha() * 100);
   const r = await dialogo({
     titulo: 'Preparar todo el documento',
     contenido: h('div', {},
@@ -248,6 +250,7 @@ async function dialogoPrepararTodo() {
         h('li', {}, `Espacio necesario: ${formatoMB(e.bytes)} aprox.`)),
       poco ? h('p', { class: 'nota-error' }, `Puede que no haya espacio suficiente (libre: ${formatoMB(e.libre)}). Borra audios en Ajustes → Almacenamiento.`) : null,
       h('p', { class: 'nota-suave' }, 'Mantén VOZI abierta: la pantalla se queda encendida mientras prepara. Puedes escuchar al mismo tiempo; lo ya preparado se aprovecha al instante. Lo preparado se conserva si lo detienes.'),
+      h('label', { class: 'fila-check' }, auto, ` Empezar a escuchar sola al ${umbral} % (sin que la lectura alcance a la preparación)`),
       e0 && e0.audioSeg > e.audioSeg + 30 ? h('p', { class: 'nota-suave' }, `Desde el principio serían ${duracionCorta(e0.audioSeg)} de audio (${formatoMB(e0.bytes)}).`) : null),
     botones: [
       { texto: 'Ahora no', valor: null },
@@ -256,7 +259,8 @@ async function dialogoPrepararTodo() {
     ].filter(Boolean),
   });
   if (!r) return;
-  L.prepararTodo({ desdeInicio: r === 'inicio' });
+  ctx.rep.desbloquear(); // dentro del toque: permite que el audio arranque solo después (iOS)
+  L.prepararTodo({ desdeInicio: r === 'inicio', autoEscuchar: auto.checked });
 }
 
 async function menuReproductor() {

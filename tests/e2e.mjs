@@ -398,6 +398,24 @@ if (quiere('todo')) {
   ok('Sin errores en «Preparar todo»', errores.length === errs0, errores.slice(errs0).join(' | '));
   await page.evaluate(() => { window.__vozi.ctx.ajustes.tramoMin = 5; });
 }
+if (quiere('autoescucha')) {
+  // «Preparar todo» con inicio automático: empieza a sonar antes de terminar y sin cortes
+  await page.evaluate(async () => {
+    const { ctx, db } = window.__vozi;
+    await db.put('docs', { id: 'dauto', title: 'Auto', createdAt: Date.now(), updatedAt: Date.now(), source: { type: 'texto' }, pages: 0,
+      paragraphs: Array.from({ length: 10 }, (_, i) => ({ id: 'z' + i, text: `Parte ${i + 1}. El equipo comercial revisó los indicadores del trimestre y propuso nuevas metas para el año siguiente.`, page: null, kind: 'p' })) });
+    window.__antes2 = ctx.ajustes.tramoMin; ctx.ajustes.tramoMin = 0.3;
+  });
+  const errs0 = errores.length;
+  await irA('biblioteca'); await page.click('.doc-abrir:has-text("Auto")'); await page.waitForSelector('.texto-lectura .parrafo');
+  await page.evaluate(() => { window.__vozi.ctx.rep.descargar(); window.__vozi.L.prepararTodo({ desdeInicio: true, autoEscuchar: true }); });
+  await page.waitForFunction(() => window.__vozi.ctx.rep.reproduciendo, null, { timeout: 600000 });
+  const r = await page.evaluate(() => ({ f: window.__vozi.L.preparacionTodo.fraccion, activo: window.__vozi.L.preparacionTodo.activo, u: window.__vozi.L.umbralEscucha(), pid: window.__vozi.ctx.rep.posicionActual().pid }));
+  ok('Empieza a escuchar sola antes de terminar de preparar', r.activo && r.f <= 0.6 && r.pid === 'z0', `sonó al ${Math.round(r.f * 100)} % (umbral ${Math.round(r.u * 100)} %), desde ${r.pid}`);
+  await page.waitForFunction(() => !window.__vozi.L.preparacionTodo.activo, null, { timeout: 900000 });
+  await page.evaluate(() => { window.__vozi.ctx.rep.pausar(); window.__vozi.ctx.ajustes.tramoMin = window.__antes2; });
+  ok('Sin errores con inicio automático', errores.length === errs0, errores.slice(errs0).join(' | '));
+}
 if (quiere('corte')) {
   // Si el tramo actual termina antes de que el siguiente esté listo, se entrega ya lo que haya
   await page.evaluate(async () => {

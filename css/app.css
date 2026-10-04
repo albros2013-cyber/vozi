@@ -345,3 +345,5 @@ body.eligiendo-perfil .pestanas, body.eligiendo-perfil .reproductor, body.eligie
 .rep-todo-barra > span { display: block; height: 100%; background: var(--acento); transition: width .3s linear; }
 .nota-error { color: var(--peligro); font-size: 15px; }
 .rep-todo .enlace { padding: 2px 4px; min-height: 0; min-width: 0; font-size: 13px; }
+.fila-check { display: flex; gap: 10px; align-items: flex-start; margin: 10px 0; font-size: 15px; line-height: 1.4; }
+.fila-check input { width: 20px; height: 20px; margin-top: 1px; flex: none; }

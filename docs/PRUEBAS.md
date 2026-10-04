@@ -80,7 +80,8 @@ Medido en Chromium con 2 núcleos (el iPhone tiene 6, así que allí debería re
 - **Avisos de sincronización:** «Se actualizó tu información desde otro dispositivo» salía cada vez, porque la base de datos devuelve el JSON con las claves en otro orden. Corregido; además solo avisa por cambios de contenido y como mucho cada 10 minutos.
 - **Calidad de voz** (Ajustes → Voz): Rápida (3 pasos, por defecto), Equilibrada (4) y Natural (5). Transcripción automática de la misma frase con voz femenina y masculina: con 5 y 3 pasos se entiende igual (una sílaba dudosa con 3 pasos en la voz masculina); con 2 pasos se cambian palabras («competencia» → «convidencia»), por eso no se ofrece. Preparación: factor 0,94 → 0,65 con un proceso y 0,55 → 0,39 con dos.
 - **Hasta 3 procesos**: «Automática» usa 3 en equipos de 6 núcleos (iPhone Pro); si la app se cierra por memoria baja uno. En el equipo de prueba (2 núcleos) 3 procesos no aportan, como era de esperar.
-- Regresión completa: todas las fases superadas; cuentas en la nube 16/16.
+- **Escuchar mientras termina de preparar:** «Preparar todo» puede empezar a sonar sola cuando hay suficiente audio adelantado para que la lectura no alcance a la preparación (umbral calculado con la velocidad medida del equipo, nunca más del 50 %). Prueba: empezó al 20 % desde el primer párrafo y terminó sin errores.
+- Regresión completa: 61/61 fases superadas; cuentas en la nube 16/16.
 
 ## 3. Pendiente de verificar en iPhone/iPad (no probado)
 
