@@ -4,7 +4,7 @@ import { ctx, guardarAjustes } from '../estado.js';
 import { db, estimarAlmacenamiento, pedirPersistencia } from '../db.js';
 import { h, aviso, confirmar, elegirArchivo, compartirODescargar, dialogo } from '../ui.js';
 import { ir, aplicarTema, actualizarReproductor, VERSION } from '../app.js';
-import { VOCES, vozPorId } from '../voices.js';
+import { VOCES_ES, VOCES_EN, vozPorId } from '../voices.js';
 import { cargarManifiesto, estadoPaquete, descargarPaquete, borrarPaquete, limpiarObsoletos, mb } from '../resources.js';
 import { normalizar } from '../tts/normalize-es.js';
 import { exportarCopia, leerCopia, restaurarCopia } from '../backup.js';
@@ -43,14 +43,24 @@ export async function vistaAjustes(main, opciones = {}) {
 async function seccionVoz(man) {
   const cont = h('div', {});
   cont.append(h('p', { class: 'nota-suave' }, 'Escucha las muestras (ya incluidas, no requieren descargar nada) y elige una voz. Las voces naturales comparten una sola descarga.'));
-  const lista = h('div', { class: 'lista-voces', role: 'radiogroup', 'aria-label': 'Voz de lectura' });
-  for (const v of VOCES) {
+  cont.append(h('h3', {}, 'Voz en español'));
+  cont.append(await listaVoces(man, VOCES_ES, 'vozId', 'Voz en español'));
+  cont.append(h('h3', {}, 'Voz en inglés'),
+    h('p', { class: 'nota-suave' }, 'VOZI reconoce automáticamente si cada párrafo está en español o en inglés y usa la voz correspondiente. Las voces en inglés usan el mismo modelo natural: no requieren otra descarga. Puedes fijar el idioma de un documento en Biblioteca → ⋯ → Idioma.'));
+  cont.append(await listaVoces(man, VOCES_EN, 'vozIdEn', 'Voz en inglés'));
+  cont.append(h('p', { class: 'nota-suave' }, 'Las muestras se generaron con los mismos modelos que usa la app. La calidad final depende del texto. Ninguna voz es humana.'));
+  return cont;
+}
+
+async function listaVoces(man, voces, clave, etiqueta) {
+  const lista = h('div', { class: 'lista-voces', role: 'radiogroup', 'aria-label': etiqueta });
+  for (const v of voces) {
     const pack = man && man.packs.find((p) => p.id === v.pack);
     const st = pack ? await estadoPaquete(pack) : { instalado: false };
-    const sel = ctx.ajustes.vozId === v.id;
-    const radio = h('input', { type: 'radio', name: 'voz', value: v.id, checked: sel, 'aria-label': v.nombre });
+    const sel = (ctx.ajustes[clave] || (clave === 'vozIdEn' ? 'en-emma' : '')) === v.id;
+    const radio = h('input', { type: 'radio', name: clave, value: v.id, checked: sel, 'aria-label': v.nombre });
     radio.addEventListener('change', async () => {
-      await guardarAjustes({ vozId: v.id });
+      await guardarAjustes({ [clave]: v.id });
       ctx.rep.descargar();
       lista.querySelectorAll('.voz').forEach((x) => x.classList.toggle('activa', x.dataset.id === v.id));
       actualizarReproductor();
@@ -64,9 +74,7 @@ async function seccionVoz(man) {
         h('span', { class: 'voz-estado ' + (st.instalado ? 'ok' : '') }, st.instalado ? '✓ Descargada' : `Sin descargar · ${pack ? mb(pack.size) : ''}`)),
       h('button', { type: 'button', class: 'boton pequeno', 'aria-label': `Escuchar muestra de ${v.nombre}`, onclick: (e) => { e.preventDefault(); tocarMuestra(v, e.currentTarget); } }, '▶ Muestra')));
   }
-  cont.append(lista);
-  cont.append(h('p', { class: 'nota-suave' }, 'Las muestras se generaron con los mismos modelos que usa la app. La calidad final depende del texto. Ninguna voz es humana.'));
-  return cont;
+  return lista;
 }
 
 function tocarMuestra(v, btn) {
@@ -136,7 +144,7 @@ function pruebaRendimiento() {
       const carga = (performance.now() - t0) / 1000;
       salida.textContent = 'Generando audio de prueba…';
       const frases = ['¿Qué factores explican el crecimiento de una empresa?', 'En dos mil veinticinco, las ventas aumentaron treinta y dos por ciento.', 'Sin embargo, la directora advirtió que no podían confiarse.', 'Los estudiantes deberán comparar las alternativas disponibles.'];
-      const r = await ctx.motor.sintetizar(frases.map((t, i) => ({ id: 'p' + i, text: t })), { sid: voz.sid, lang: pack.engine === 'supertonic' ? 'es' : undefined, numSteps: ctx.ajustes.numSteps, outRate: pack.engine === 'supertonic' ? 24000 : undefined }, null);
+      const r = await ctx.motor.sintetizar(frases.map((t, i) => ({ id: 'p' + i, text: t })), { sid: voz.sidEs, lang: pack.engine === 'supertonic' ? 'es' : undefined, numSteps: ctx.ajustes.numSteps, outRate: pack.engine === 'supertonic' ? 24000 : undefined }, null);
       const rtf = (r.elapsedMs / 1000) / r.audioSeg;
       const min5 = Math.round(5 * rtf * 10) / 10;
       salida.textContent = `Carga de la voz: ${carga.toFixed(1)} s. Generó ${r.audioSeg.toFixed(1)} s de audio en ${(r.elapsedMs / 1000).toFixed(1)} s (factor ${rtf.toFixed(2)}). Un tramo de 5 minutos tardaría unos ${min5.toString().replace('.', ',')} minutos en prepararse.` +
@@ -159,7 +167,7 @@ async function seccionRecursos(man) {
   if (!man) return h('p', {}, 'No se pudo leer la lista de recursos. Conéctate a internet e inténtalo de nuevo.');
   const voz = vozPorId(ctx.ajustes.vozId);
   cont.append(h('p', { class: 'nota-suave' }, 'Descarga una sola vez lo que necesitas. Después, la lectura en voz alta, el reconocimiento de texto y tus documentos funcionan sin conexión. Si la descarga se interrumpe, se reanuda donde quedó.'));
-  const necesarios = ['motor-voz', voz.pack, 'motor-ocr', 'ocr-spa'].map((id) => man.packs.find((p) => p.id === id)).filter(Boolean);
+  const necesarios = [...new Set(['motor-voz', voz.pack, 'voz-supertonic3', 'motor-ocr', 'ocr-spa'])].map((id) => man.packs.find((p) => p.id === id)).filter(Boolean);
   const pendientes = [];
   for (const p of necesarios) if (!(await estadoPaquete(p)).instalado) pendientes.push(p);
   if (pendientes.length) {

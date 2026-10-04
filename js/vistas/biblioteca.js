@@ -67,6 +67,7 @@ export async function vistaBiblioteca(main) {
       contenido: h('p', { class: 'nota-suave' }, 'Elige una acción.'),
       botones: [
         { texto: 'Renombrar', valor: 'renombrar' },
+        { texto: 'Idioma', valor: 'idioma' },
         { texto: 'Borrar audios', valor: 'audios' },
         { texto: 'Eliminar', valor: 'eliminar', clase: 'peligro' },
         { texto: 'Cerrar', valor: null },
@@ -75,6 +76,18 @@ export async function vistaBiblioteca(main) {
     if (r === 'renombrar') {
       const t = await pedirTexto('Nuevo nombre', { valor: d.title });
       if (t && t.trim()) { d.title = t.trim(); d.updatedAt = Date.now(); await db.put('docs', d); if (ctx.doc && ctx.doc.id === d.id) ctx.doc.title = d.title; ir('biblioteca'); }
+    } else if (r === 'idioma') {
+      const actual = d.idioma || 'auto';
+      const v = await dialogo({
+        titulo: 'Idioma del documento',
+        contenido: h('p', { class: 'nota-suave' }, 'En «Automático», VOZI reconoce el idioma de cada párrafo (español o inglés) y usa la voz correspondiente.'),
+        botones: [['auto', 'Automático'], ['es', 'Español'], ['en', 'Inglés']].map(([val, t]) => ({ texto: (val === actual ? '✓ ' : '') + t, valor: val, clase: val === actual ? 'primario' : '' })),
+      });
+      if (v && v !== actual) {
+        d.idioma = v; d.updatedAt = Date.now(); await db.put('docs', d);
+        if (ctx.doc && ctx.doc.id === d.id) { ctx.doc.idioma = v; ctx.rep.descargar(); }
+        aviso('Idioma actualizado. El audio se preparará de nuevo con la voz correspondiente.');
+      }
     } else if (r === 'audios') {
       if (await confirmar('Se borrará el audio preparado de este documento. Podrás volver a prepararlo cuando quieras. Las notas y el texto no se tocan.', { si: 'Borrar audios', peligro: true })) {
         if (ctx.doc && ctx.doc.id === d.id) ctx.rep.descargar();

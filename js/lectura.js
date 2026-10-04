@@ -4,6 +4,7 @@ import { ctx, guardarAjustes } from './estado.js';
 import { db } from './db.js';
 import { vozPorId } from './voices.js';
 import { cargarManifiesto, estadoPaquete } from './resources.js';
+import { idiomasDeParrafos } from './tts/idioma.js';
 import { planificarTramo, buscarTramoGuardado, prepararTramo } from './tts/tramos.js';
 import { aviso, formatoRestante, formatoTiempo, h, dialogo } from './ui.js';
 
@@ -20,16 +21,26 @@ const est = {
 };
 export const estadoLectura = est;
 
-// Comprueba que la voz elegida y el motor estén descargados
-export async function vozLista() {
-  const voz = vozPorId(ctx.ajustes.vozId);
+// Elige el paquete de voz y las voces (español/inglés) para un tramo y comprueba que estén descargados.
+// El inglés usa siempre las voces naturales (Supertonic 3): el mismo modelo habla ambos idiomas.
+export async function vozLista({ necesitaEn = false, necesitaEs = true } = {}) {
+  const vozEs = vozPorId(ctx.ajustes.vozId);
+  const vozEn = vozPorId(ctx.ajustes.vozIdEn || 'en-emma');
   const man = await cargarManifiesto();
-  const pack = man.packs.find((p) => p.id === voz.pack);
   const motor = man.packs.find((p) => p.id === 'motor-voz');
-  if (!pack || !motor) return { ok: false, voz, faltan: [] };
+  const packId = necesitaEn ? 'voz-supertonic3' : vozEs.pack;
+  const pack = man.packs.find((p) => p.id === packId);
+  if (!pack || !motor) return { ok: false, voz: vozEs, faltan: [] };
   const faltan = [];
   for (const p of [motor, pack]) if (!(await estadoPaquete(p)).instalado) faltan.push(p);
-  return { ok: faltan.length === 0, voz, pack, faltan };
+  const natural = vozEs.pack === 'voz-supertonic3';
+  const voz = {
+    id: vozEs.id + (necesitaEn ? '+' + vozEn.id : ''), vozEsId: vozEs.id, vozEnId: necesitaEn ? vozEn.id : null,
+    nombre: vozEs.nombre,
+    sidEs: pack.engine === 'supertonic' ? (natural ? vozEs.sid : (vozEs.genero === 'm' ? 8 : 2)) : vozEs.sid,
+    sidEn: vozEn.sid,
+  };
+  return { ok: faltan.length === 0, voz, pack, faltan, soloEn: !necesitaEs };
 }
 
 function indicePorPid(doc, pid) { return doc.paragraphs.findIndex((p) => p.id === pid); }
@@ -51,14 +62,15 @@ async function asegurarMotor(pack, alEstado) {
 
 // Prepara un tramo (o lo recupera si ya estaba guardado)
 async function obtenerTramo(doc, inicioIdx, minutos, { visible, signal }) {
-  const { ok, voz, pack, faltan } = await vozLista();
+  const plan = planificarTramo(doc, inicioIdx, minutos, ctx.ajustes.cps, ctx.ajustes.diccionario,
+    { leerNotasPie: !!ctx.ajustes.leerNotasPie, idiomas: idiomasDeParrafos(doc) });
+  if (!plan.items.length) return null;
+  const { ok, voz, pack, faltan } = await vozLista({ necesitaEn: plan.items.some((x) => x.lang === 'en'), necesitaEs: plan.items.some((x) => x.lang !== 'en') });
   if (!ok) {
     const e = new Error('FALTA_VOZ');
     e.faltan = faltan;
     throw e;
   }
-  const plan = planificarTramo(doc, inicioIdx, minutos, ctx.ajustes.cps, ctx.ajustes.diccionario, { leerNotasPie: !!ctx.ajustes.leerNotasPie });
-  if (!plan.items.length) return null;
   const guardado = await buscarTramoGuardado(doc, plan, voz, ctx.ajustes);
   if (guardado) return guardado;
   const progreso = (p) => {
@@ -193,7 +205,7 @@ export async function restaurarPosicion(doc) {
   if (pr.audioId) {
     const rec = await db.get('audio', pr.audioId);
     const voz = vozPorId(ctx.ajustes.vozId);
-    if (rec && rec.vozId === voz.id && rec.parrafos.every((id) => doc.paragraphs.some((p) => p.id === id))) {
+    if (rec && (rec.vozId === voz.id || String(rec.vozId).startsWith(voz.id + '+')) && rec.parrafos.every((id) => doc.paragraphs.some((p) => p.id === id))) {
       try { await ctx.rep.cargar(rec, Math.max(0, (pr.tiempo || 0) - 1.5)); emitir('tramo', rec); return { pidx, s: pr.s, conAudio: true }; } catch { /* audio no disponible */ }
     }
   }

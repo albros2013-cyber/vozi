@@ -39,6 +39,15 @@ Velocidad de preparación (este equipo, 1 núcleo por proceso): factor 0,97 con 
 
 PDF de prueba con 2 notas por página (una de dos líneas) y llamadas voladas: las 4 notas se detectan, la de dos líneas se une, las llamadas quedan como superíndice («precios¹») y la voz omite notas y llamadas. Detección solo en PDF con texto digital; en páginas escaneadas (OCR) se puede marcar a mano tocando el párrafo.
 
+## 2c. Inglés y detección automática (añadido)
+
+- Voces en inglés con el mismo modelo Supertonic 3 (sin descarga extra). Error de palabras en inglés: 0 % en 9 de 10 voces; elegidas Emma (0), Grace (3), James (5), Daniel (6).
+- Detección por párrafo (palabras frecuentes, ¿¡, tildes, contracciones); párrafos cortos o ambiguos heredan el idioma anterior. Documento mixto de prueba: es, en, en, en, en, es — correcto.
+- Normalización inglesa (años, porcentajes, dólares, ordinales, horas, Dr./Mr./e.g.). Transcripción del audio generado: inglés y español correctos en un mismo tramo.
+- OCR con español + inglés (paquete de 29 MB).
+- Se puede fijar el idioma de un documento (Biblioteca → ⋯ → Idioma).
+- Con una voz ligera (Piper) elegida, los tramos con inglés se leen con las voces naturales, porque Piper solo habla español.
+
 ## 3. Pendiente de verificar en iPhone/iPad (no probado)
 
 - Que Safari reserve la memoria del motor (512 MB iniciales por proceso). En equipos con poca memoria podría fallar; la voz ligera usa la misma reserva. Corregirlo exige recompilar sherpa-onnx con menos memoria inicial.

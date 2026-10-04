@@ -68,9 +68,9 @@ def main(selected):
             files += [(s, f'{vid}/{fs}') for s, fs in espeak_es(f'{d}/espeak-ng-data')]
             packs.append(pack('voz-' + vid, '1', title, desc, files, engine='piper', sampleRate=22050))
     if 'ocr' in selected:
-        packs.append(pack('ocr-spa', 'best-4.1', 'Reconocimiento de texto en español (OCR)',
+        packs.append(pack('ocr-spa', 'best-4.1-es-en', 'Reconocimiento de texto en español e inglés (OCR)',
             'Datos de Tesseract para leer fotos y páginas escaneadas.',
-            [(os.path.join(M, 'spa.traineddata'), 'spa.traineddata')], engine='ocr'))
+            [(os.path.join(M, 'spa.traineddata'), 'spa.traineddata'), (os.path.join(M, 'eng.traineddata'), 'eng.traineddata')], engine='ocr'))
     if 'motor' in selected:
         fl = [add_direct('vendor/sherpa/' + n) for n in ['sherpa-onnx-wasm-main-tts.js', 'sherpa-onnx-tts.js', 'sherpa-onnx-wasm-main-tts.wasm']]
         packs.append({'id': 'motor-voz', 'version': 'sherpa-onnx-1.13.8', 'title': 'Motor de voz',

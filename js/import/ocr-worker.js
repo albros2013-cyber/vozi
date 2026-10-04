@@ -4,20 +4,32 @@
 'use strict';
 let Tess = null, api = null, actual = null;
 
-async function init({ base, cacheName, dataUrl }) {
-  let resp = null;
-  if (cacheName && self.caches) resp = await (await caches.open(cacheName)).match(dataUrl);
-  if (!resp) { resp = await fetch(dataUrl).catch(() => null); if (!resp || !resp.ok) throw new Error('FALTA_OCR'); }
-  const datos = new Uint8Array(await resp.arrayBuffer());
+async function leer(cache, urls) {
+  const partes = [];
+  for (const url of urls) {
+    let resp = cache ? await cache.match(url) : null;
+    if (!resp) { resp = await fetch(url).catch(() => null); if (!resp || !resp.ok) throw new Error('FALTA_OCR'); }
+    partes.push(new Uint8Array(await resp.arrayBuffer()));
+  }
+  const out = new Uint8Array(partes.reduce((s, p) => s + p.length, 0));
+  let o = 0; for (const p of partes) { out.set(p, o); o += p.length; }
+  return out;
+}
+
+async function init({ base, cacheName, datos: lista }) {
+  const cache = cacheName && self.caches ? await caches.open(cacheName) : null;
+  const archivos = [];
+  for (const d of lista) archivos.push({ nombre: d.nombre, datos: await leer(cache, d.urls) });
   importScripts(base + 'tesseract-core-simd-lstm.js');
   Tess = await self.TesseractCore({
     locateFile: (p) => base + p,
     TesseractProgress: (pct) => { if (actual != null) self.postMessage({ type: 'progress', id: actual, progress: Math.max(0, Math.min(1, (pct - 30) / 70)) }); },
     print: () => {}, printErr: () => {},
   });
-  Tess.FS.writeFile('/spa.traineddata', datos);
+  for (const a of archivos) Tess.FS.writeFile('/' + a.nombre, a.datos);
+  const idiomas = archivos.map((a) => a.nombre.replace('.traineddata', '')).join('+'); // «spa+eng»
   api = new Tess.TessBaseAPI();
-  const st = api.Init(null, 'spa', 1);
+  const st = api.Init(null, idiomas, 1);
   if (st !== 0) throw new Error('No se pudo iniciar el reconocimiento de texto');
   api.SetVariable('preserve_interword_spaces', '0');
   api.SetVariable('user_defined_dpi', '300');

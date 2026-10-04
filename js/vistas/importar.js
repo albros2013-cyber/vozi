@@ -5,6 +5,7 @@ import { ir, abrirDocumento } from '../app.js';
 import { importarTxt, importarDocx, parrafosDesdeTexto, LIMITE_ARCHIVO } from '../import/textos.js';
 import { ocrDisponible, prepararImagen, reconocer, cerrarOcr } from '../import/ocr.js';
 import { cargarManifiesto, estadoPaquete } from '../resources.js';
+import { detectarIdioma, idiomaPredominante } from '../tts/idioma.js';
 
 let borrador = null; // documento en revisión antes de guardar
 
@@ -22,7 +23,7 @@ export async function vistaImportar(main, opciones = {}) {
       tarjeta('✎', 'Pegar texto', 'Escribe o pega y edita', () => pegarTexto(main))),
     h('div', { class: 'aviso-ocr ' + (ocrOk ? 'ok' : 'falta') },
       h('strong', {}, 'Reconocimiento de texto (OCR): '),
-      ocrOk ? 'listo para usar sin conexión.' : 'aún no está descargado. Es necesario para fotos y PDF escaneados (16 MB).',
+      ocrOk ? 'listo para usar sin conexión.' : 'aún no está descargado. Es necesario para fotos y PDF escaneados en español e inglés (32 MB).',
       ocrOk ? null : h('button', { class: 'enlace', onclick: () => ir('ajustes', { seccion: 'recursos' }) }, 'Descargar ahora')),
     h('p', { class: 'nota-suave' }, 'El OCR extrae el texto escrito en una imagen. No describe fotografías ni interpreta gráficos, tablas complejas o fórmulas: revisa siempre el texto reconocido.'));
   main.append(cont);
@@ -214,6 +215,11 @@ function vistaRevision(main) {
     cont.append(h('div', { class: 'aviso-ocr ' + (bajas.length ? 'falta' : 'ok') },
       `Texto reconocido con OCR en ${d.paginasOcr.length} página(s). `,
       bajas.length ? `Confianza baja en: ${bajas.map((p) => p.n).join(', ')}. Revisa esas páginas.` : 'Revisa nombres propios, cifras y signos.'));
+  }
+  if (!d.vacio && d.paragraphs.length) {
+    const det = idiomaPredominante(d.paragraphs);
+    const mixto = d.paragraphs.some((p) => detectarIdioma(p.text) === (det === 'es' ? 'en' : 'es'));
+    cont.append(h('p', { class: 'nota-suave' }, `Idioma detectado: ${det === 'en' ? 'inglés' : 'español'}${mixto ? ' (con partes en ' + (det === 'en' ? 'español' : 'inglés') + ': cada párrafo se leerá con la voz de su idioma)' : ''}.`));
   }
   if (d.notasAlPie) {
     cont.append(h('div', { class: 'aviso-ocr ok' }, `Se detectaron ${d.notasAlPie} nota(s) al pie. Se conservan en el texto y la voz las omite (puedes cambiarlo en Ajustes → Lectura, o tocando el párrafo).`));

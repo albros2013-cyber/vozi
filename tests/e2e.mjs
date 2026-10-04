@@ -270,6 +270,43 @@ if (quiere('notas')) {
   ok('La voz omite notas al pie y llamadas', !/Banco de la República|indexación y su efecto/.test(r.voz) && !/[¹²]/.test(r.voz) && /precios durante/.test(r.voz), r.voz.slice(0, 120));
   ok('Aviso de notas detectadas al revisar', /nota\(s\) al pie/.test(av), av.slice(0, 80));
 }
+if (quiere('ingles')) {
+  await page.evaluate(async () => {
+    const { db, ctx } = window.__vozi;
+    await db.put('docs', { id: 'dmix', title: 'Documento bilingüe', createdAt: Date.now(), updatedAt: Date.now(), source: { type: 'texto' }, pages: 0, paragraphs: [
+      { id: 'm1', text: 'El caso de estudio describe una empresa colombiana que exporta café a Estados Unidos.', page: null, kind: 'p' },
+      { id: 'm2', text: 'What factors explain the growth of the company? In 2025, sales increased by 32% to $1,500,000, according to Dr. Smith.', page: null, kind: 'p' },
+      { id: 'm3', text: 'Executive summary', page: null, kind: 'h' },
+      { id: 'm4', text: 'The board decided to expand into new markets while keeping its focus on quality.', page: null, kind: 'p' },
+      { id: 'm5', text: '¿Qué opinan los estudiantes sobre esta decisión?', page: null, kind: 'p' }] });
+  });
+  await irA('biblioteca');
+  await page.click('.doc-abrir:has-text("Documento bilingüe")');
+  await page.waitForSelector('.texto-lectura .parrafo');
+  const plan = await page.evaluate(async () => {
+    const { planificarTramo } = await import('./js/tts/tramos.js');
+    const { idiomasDeParrafos } = await import('./js/tts/idioma.js');
+    const d = window.__vozi.ctx.doc;
+    return planificarTramo(d, 0, 10, 13.5, [], { idiomas: idiomasDeParrafos(d) }).items.map((i) => i.lang + ': ' + i.text);
+  });
+  fs.writeFileSync(OUT + '/plan-bilingue.json', JSON.stringify(plan, null, 1));
+  const langs = plan.map((x) => x.slice(0, 2)).join(',');
+  ok('Idioma detectado por párrafo (es/en)', langs === 'es,en,en,en,en,es', langs);
+  ok('Inglés normalizado en inglés', plan.some((x) => x.includes('twenty twenty-five') && x.includes('thirty-two percent') && x.includes('one million five hundred thousand dollars') && x.includes('Doctor Smith')));
+  await page.evaluate(() => { window.__vozi.L.escucharDesde(0); });
+  await page.waitForFunction(() => window.__vozi.ctx.rep.reproduciendo, null, { timeout: 600000 });
+  const wav = await page.evaluate(async () => {
+    const t = window.__vozi.ctx.rep.tramo;
+    const r = await window.__vozi.db.get('audioBlobs', t.id);
+    const b = new Uint8Array(await r.blob.arrayBuffer());
+    let s = ''; for (let i = 0; i < b.length; i += 32768) s += String.fromCharCode(...b.subarray(i, i + 32768));
+    return { b64: btoa(s), tiempos: t.tiempos };
+  });
+  fs.writeFileSync(OUT + '/tramo-bilingue.wav', Buffer.from(wav.b64, 'base64'));
+  fs.writeFileSync(OUT + '/tramo-bilingue.json', JSON.stringify(wav.tiempos, null, 1));
+  ok('Audio bilingüe generado en un solo tramo', wav.tiempos.length === 6, `${wav.tiempos.length} piezas`);
+  await page.evaluate(() => window.__vozi.ctx.rep.pausar());
+}
 if (quiere('escaneado')) {
   await importarArchivo(FIX + 'escaneado.pdf');
   await page.waitForSelector('button:has-text("Importar")', { timeout: 30000 });

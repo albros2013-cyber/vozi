@@ -166,7 +166,7 @@ async function synth(msg) {
       let intento = 0;
       let seed = msg.seed != null ? msg.seed : 1234;
       while (true) {
-        const r = generar(it.text, { ...msg, seed });
+        const r = generar(it.text, { ...msg, ...(it.lang ? { lang: it.lang } : {}), ...(it.sid != null ? { sid: it.sid } : {}), seed });
         let s = recortar(r.samples, r.sampleRate);
         const dur = s.length / r.sampleRate;
         let sr = r.sampleRate;

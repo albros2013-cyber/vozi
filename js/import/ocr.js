@@ -28,7 +28,7 @@ async function asegurar() {
       }
     };
   });
-  worker.postMessage({ type: 'init', base: abs('vendor/tesseract/'), cacheName: RES_CACHE, dataUrl: abs(p.files[0].chunks[0].url) });
+  worker.postMessage({ type: 'init', base: abs('vendor/tesseract/'), cacheName: RES_CACHE, datos: p.files.map((f) => ({ nombre: f.fs, urls: f.chunks.map((c) => abs(c.url)) })) });
   try { await listo; } catch (e) { cerrarOcr(); throw e; }
   return listo;
 }

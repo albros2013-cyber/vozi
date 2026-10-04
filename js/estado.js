@@ -6,6 +6,7 @@ export const AJUSTES_DEF = {
   letra: 20,                // tamaño de letra de lectura (px)
   interlineado: 1.65,
   vozId: 'st-valeria',
+  vozIdEn: 'en-emma',       // voz para los párrafos en inglés (detección automática)
   tramoMin: 5,              // duración aproximada del tramo (min)
   primerTramoCorto: true,   // el primer tramo dura ~1 min para empezar antes
   velocidad: 1,             // velocidad de reproducción (sin cambiar tono)

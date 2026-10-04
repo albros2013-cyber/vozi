@@ -8,4 +8,5 @@ for m in sherpa-onnx-supertonic-3-tts-int8-2026-05-11 vits-piper-es_MX-ald-mediu
   if [ ! -d "$m" ]; then curl -fSL -o "$m.tar.bz2" "$R/$m.tar.bz2" && tar xjf "$m.tar.bz2" && rm "$m.tar.bz2"; fi
 done
 [ -f spa.traineddata ] || curl -fSL -o spa.traineddata https://github.com/tesseract-ocr/tessdata_best/raw/main/spa.traineddata
+[ -f eng.traineddata ] || curl -fSL -o eng.traineddata https://github.com/tesseract-ocr/tessdata_best/raw/main/eng.traineddata
 ls -la

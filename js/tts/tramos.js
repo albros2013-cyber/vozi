@@ -2,6 +2,7 @@
 // Un tramo se sintetiza completo, se une en un solo archivo y se reproduce con un único
 // reproductor, sin reinicios entre oraciones o párrafos.
 import { normalizar } from './normalize-es.js';
+import { normalizarEn } from './normalize-en.js';
 import { dividirOraciones, partirLarga } from './segmenter.js';
 import { db, uid } from '../db.js';
 
@@ -16,7 +17,7 @@ export function hashTexto(s) {
 
 // Planifica un tramo a partir del párrafo `inicio`. Termina en un final de párrafo cuando
 // la duración estimada alcanza `minutos`.
-export function planificarTramo(doc, inicio, minutos, cps, diccionario, { leerNotasPie = false } = {}) {
+export function planificarTramo(doc, inicio, minutos, cps, diccionario, { leerNotasPie = false, idiomas = null } = {}) {
   const objetivo = minutos * 60;
   const items = [];
   const parrafos = [];
@@ -28,21 +29,22 @@ export function planificarTramo(doc, inicio, minutos, cps, diccionario, { leerNo
     const oraciones = dividirOraciones(p.text);
     oraciones.forEach((o, si) => {
       const original = p.text.slice(o.start, o.end);
-      const dicho = normalizar(original, { diccionario });
+      const lang = (idiomas && idiomas[i]) || 'es';
+      const dicho = lang === 'en' ? normalizarEn(original, { diccionario }) : normalizar(original, { diccionario });
       const partes = partirLarga(dicho, 280);
       partes.forEach((t, pi) => {
         const ultimaParte = pi === partes.length - 1;
         const ultimaOracion = si === oraciones.length - 1;
         let pausa = PAUSAS.parte;
         if (ultimaParte) pausa = ultimaOracion ? (p.kind === 'h' ? PAUSAS.titulo : PAUSAS.parrafo) : PAUSAS.oracion;
-        items.push({ id: `${p.id}|${si}|${pi}`, pid: p.id, pidx: i, s: si, text: t, pausa });
+        items.push({ id: `${p.id}|${si}|${pi}`, pid: p.id, pidx: i, s: si, text: t, pausa, lang });
         est += t.length / cps + pausa;
       });
     });
     parrafos.push(p.id);
     if (est >= objetivo) break;
   }
-  const textHash = hashTexto(items.map((x) => x.text).join('\n'));
+  const textHash = hashTexto(items.map((x) => x.lang + ':' + x.text).join('\n'));
   return { items, parrafos, inicio, fin: items.length ? items[items.length - 1].pidx : inicio, estimadoSeg: est, textHash };
 }
 
@@ -112,8 +114,10 @@ export async function prepararTramo({ motor, doc, plan, voz, pack, ajustes, onPr
   let sr = outRate || pack.sampleRate || 22050;
   const t0 = performance.now();
   await motor.sintetizar(
-    plan.items.map((it) => ({ id: it.id, text: it.text })),
-    { sid: voz.sid || 0, lang: pack.engine === 'supertonic' ? 'es' : undefined, numSteps: ajustes.numSteps || 5,
+    plan.items.map((it) => (pack.engine === 'supertonic'
+      ? { id: it.id, text: it.text, lang: it.lang, sid: it.lang === 'en' ? voz.sidEn : voz.sidEs }
+      : { id: it.id, text: it.text })),
+    { sid: voz.sidEs || 0, lang: pack.engine === 'supertonic' ? 'es' : undefined, numSteps: ajustes.numSteps || 5,
       speed: ajustes.velocidadVoz || 1.0, outRate, charsPorSegundo: ajustes.cps || 14 },
     (m) => {
       const it = plan.items[m.index];

@@ -5,7 +5,7 @@ const ABREV = new Set(['sr', 'sra', 'srta', 'sres', 'sras', 'dr', 'dra', 'dres',
   'arts', 'cap', 'caps', 'vol', 'vols', 'ed', 'eds', 'fig', 'figs', 'aprox', 'máx', 'mín', 'tel', 'av', 'avda', 'cra',
   'cl', 'dpto', 'depto', 'cía', 'ltda', 'sto', 'sta', 'gral', 'cnel', 'pdte', 'adm', 'admón', 'al', 'ibíd', 'cit',
   'ss', 'atte', 'izq', 'der', 'dcha', 'obs', 'p', 'pl', 'op', 'ee', 'uu', 'c', 'm', 'mz', 'bto', 'inc', 'jr',
-  'mr', 'mrs', 'st', 'col']);
+  'mr', 'mrs', 'ms', 'st', 'col', 'ltd', 'corp', 'dr', 'prof', 'approx', 'dept', 'est', 'jan', 'feb', 'aug', 'sept', 'oct', 'nov', 'dec']);
 
 const CIERRE = `["'”’»)\\]]*`;
 

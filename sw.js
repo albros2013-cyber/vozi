@@ -2,7 +2,7 @@
  * - La app (código) se guarda en una caché por versión: nunca se mezclan módulos de versiones distintas.
  * - Voces, motores y OCR se guardan aparte (vozi-res-v1) y se conservan entre versiones.
  * - Los datos del usuario (IndexedDB) nunca se tocan aquí. */
-const VERSION = 'cc77d2aaf4';
+const VERSION = '3dac1c5b8e';
 const APP_CACHE = 'vozi-app-' + VERSION;
 const RES_CACHE = 'vozi-res-v1';
 const SHELL = [
@@ -24,6 +24,8 @@ const SHELL = [
 "./js/player.js",
 "./js/resources.js",
 "./js/tts/engine.js",
+"./js/tts/idioma.js",
+"./js/tts/normalize-en.js",
 "./js/tts/normalize-es.js",
 "./js/tts/segmenter.js",
 "./js/tts/tramos.js",
@@ -47,6 +49,10 @@ const SHELL = [
 "./licenses/tesseract.js-core-LICENSE.txt",
 "./licenses/unlicense.txt",
 "./manifest.webmanifest",
+"./samples/en-st0.m4a",
+"./samples/en-st3.m4a",
+"./samples/en-st5.m4a",
+"./samples/en-st6.m4a",
 "./samples/es_MX-ald-medium.m4a",
 "./samples/es_MX-claude-high.m4a",
 "./samples/st2.m4a",
