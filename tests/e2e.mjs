@@ -416,6 +416,51 @@ if (quiere('autoescucha')) {
   await page.evaluate(() => { window.__vozi.ctx.rep.pausar(); window.__vozi.ctx.ajustes.tramoMin = window.__antes2; });
   ok('Sin errores con inicio automático', errores.length === errs0, errores.slice(errs0).join(' | '));
 }
+if (quiere('ia')) {
+  // Asistente de estudio con IA (motor simulado: el entorno de prueba no tiene tarjeta gráfica)
+  await page.evaluate(async () => {
+    localStorage.setItem('vozi-ia-simulada', '1');
+    await window.__vozi.db.put('docs', { id: 'dia', title: 'Estudio IA', createdAt: Date.now(), updatedAt: Date.now(), source: { type: 'texto' }, pages: 2,
+      paragraphs: Array.from({ length: 14 }, (_, i) => ({ id: 'ia' + i, text: `Sección ${i + 1}. La empresa analizó su crecimiento en un mercado competitivo. La directora advirtió que la competencia regional se intensificó durante el segundo semestre y que las ventajas podían desaparecer sin innovación. `.repeat(3), page: i < 7 ? 1 : 2, kind: 'p' })) });
+  });
+  const errs0 = errores.length;
+  await irA('biblioteca'); await page.click('.doc-abrir:has-text("Estudio IA")'); await page.waitForSelector('.texto-lectura .parrafo');
+  await page.click('button[aria-label="Asistente de estudio con IA"]');
+  await page.click('.dialogo button:has-text("Descargar")');
+  await page.waitForSelector('.panel-ia');
+  await page.click('.panel-ia button:has-text("Resumir")');
+  await page.waitForSelector('.panel-ia button:has-text("Guardar en notas")', { timeout: 60000 });
+  const resumen = await page.$eval('.ia-salida', (e) => e.textContent);
+  const frs = await page.evaluate(async () => (await import('./js/ia/ia.js')).fragmentar(window.__vozi.ctx.doc).length);
+  ok('IA: resumen por partes y final, sin restos de «pensamiento»', /Ideas clave/.test(resumen) && !/think/.test(resumen) && frs > 1, `${frs} partes · ${resumen.slice(0, 80)}`);
+  await page.click('.panel-ia button:has-text("Guardar en notas")');
+  await page.click('.panel-ia button:has-text("Preguntas de repaso")');
+  await page.waitForSelector('.panel-ia button:has-text("Crear tarjetas")', { timeout: 60000 });
+  const nPreg = await page.$$eval('.ia-pregunta', (e) => e.length);
+  await page.click('.panel-ia button:has-text("Crear tarjetas")');
+  await esperar(500);
+  await page.fill('.panel-ia input.campo', '¿Cuándo se intensificó la competencia?');
+  await page.click('.panel-ia button:has-text("Preguntar")');
+  await page.waitForFunction(() => /segundo semestre/.test(document.querySelector('.ia-salida').textContent), null, { timeout: 30000 });
+  const est = await page.$eval('.ia-estado', (e) => e.textContent);
+  await page.click('.dialogo button:has-text("Cerrar")');
+  const r = await page.evaluate(async () => {
+    const db = window.__vozi.db;
+    return { cards: (await db.byIndex('cards', 'docId', 'dia')).length, notas: (await db.byIndex('notes', 'docId', 'dia')).map((n) => n.texto.split('\n')[0]) };
+  });
+  ok('IA: preguntas de repaso convertidas en tarjetas', nPreg >= 3 && r.cards === nPreg, `${nPreg} preguntas, ${r.cards} tarjetas`);
+  ok('IA: responde preguntas indicando páginas', /págin/.test(est), est);
+  ok('IA: resumen guardado en notas', r.notas.includes('Resumen (IA)'), r.notas.join(', '));
+  // Explicar un párrafo
+  await page.click('.texto-lectura .parrafo[data-idx="2"]');
+  await page.click('.dialogo button:has-text("Explicar con IA")');
+  await page.waitForFunction(() => /en pocas palabras/.test(document.querySelector('.ia-salida')?.textContent || ''), null, { timeout: 30000 });
+  ok('IA: explica un párrafo', true);
+  await page.click('.dialogo button:has-text("Cerrar")');
+  await page.screenshot({ path: OUT + '/ia.png' });
+  ok('IA: sin errores', errores.length === errs0, errores.slice(errs0).join(' | '));
+  await page.evaluate(() => localStorage.removeItem('vozi-ia-simulada'));
+}
 if (quiere('corte')) {
   // Si el tramo actual termina antes de que el siguiente esté listo, se entrega ya lo que haya
   await page.evaluate(async () => {

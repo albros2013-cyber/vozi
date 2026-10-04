@@ -347,3 +347,24 @@ body.eligiendo-perfil .pestanas, body.eligiendo-perfil .reproductor, body.eligie
 .rep-todo .enlace { padding: 2px 4px; min-height: 0; min-width: 0; font-size: 13px; }
 .fila-check { display: flex; gap: 10px; align-items: flex-start; margin: 10px 0; font-size: 15px; line-height: 1.4; }
 .fila-check input { width: 20px; height: 20px; margin-top: 1px; flex: none; }
+
+/* ---------- Asistente de estudio con IA ---------- */
+.panel-ia { display: grid; gap: 12px; }
+.ia-botones { display: flex; flex-wrap: wrap; gap: 8px; }
+.ia-botones .boton { flex: 1 1 auto; }
+.fila-pregunta { display: flex; gap: 8px; }
+.fila-pregunta .campo { flex: 1; min-width: 0; }
+.ia-barra { height: 6px; border-radius: 6px; background: var(--superficie-2); overflow: hidden; }
+.ia-barra[hidden] { display: none; }
+.ia-barra > span { display: block; height: 100%; width: 0; background: var(--acento); transition: width .3s; }
+.ia-estado { margin: 0; min-height: 1.2em; }
+.ia-salida { max-height: 46vh; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+.ia-texto p { margin: 0 0 10px; line-height: 1.5; }
+.ia-texto ul { margin: 0 0 10px; padding-left: 20px; }
+.ia-texto li { margin-bottom: 6px; line-height: 1.45; }
+.ia-borrador { white-space: pre-wrap; font: inherit; font-size: 14px; color: var(--texto-suave); margin: 0; }
+.ia-pregunta { display: flex; gap: 10px; align-items: flex-start; padding: 10px 0; border-bottom: 1px solid var(--borde); }
+.ia-pregunta input { width: 20px; height: 20px; flex: none; margin-top: 2px; accent-color: var(--verde); }
+.ia-pregunta-hecha { font-weight: 700; margin: 0 0 8px; }
+.ia-acciones-resultado { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+button.voz-ia { width: 100%; text-align: left; background: none; font: inherit; color: inherit; }

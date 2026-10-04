@@ -18,6 +18,7 @@ export const AJUSTES_DEF = {
   prepararSiguiente: true,  // preparar el siguiente tramo mientras se escucha
   leerNotasPie: false,      // las notas al pie se muestran pero la voz las omite
   rtf: null,                // velocidad medida de preparación en este dispositivo
+  iaModelo: 'qwen3-1.7b',   // modelo de IA del dispositivo
   paralelo: 'auto',         // procesos de síntesis: 'auto' (2 si el equipo lo aguanta), 1 o 2
 };
 

@@ -26,6 +26,7 @@ export async function vistaAjustes(main, opciones = {}) {
     ['sesiones', 'Cuenta y sesiones', () => seccionSesiones()],
     ['lectura', 'Lectura', () => seccionLectura()],
     ['recursos', 'Recursos sin conexión', () => seccionRecursos(man)],
+    ['ia', 'Inteligencia artificial (en el equipo)', async () => (await import('./ia.js')).seccionIA()],
     ['apariencia', 'Apariencia', () => seccionApariencia()],
     ['pronunciacion', 'Pronunciación personalizada', () => seccionPronunciacion()],
     ['almacenamiento', 'Almacenamiento', () => seccionAlmacenamiento()],

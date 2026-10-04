@@ -19,6 +19,8 @@ jobs:
         run: bash tools/descargar_modelos.sh
       - name: Preparar recursos troceados y verificados
         run: python3 tools/build_res.py supertonic es_MX-ald-medium es_MX-claude-high ocr motor
+      - name: Traer el motor de IA del dispositivo (WebLLM)
+        run: bash tools/vendor_webllm.sh || echo "::warning::No se pudo traer WebLLM; la IA del dispositivo no estará disponible"
       - name: Generar service worker
         run: python3 tools/build_sw.py
       - name: Armar sitio

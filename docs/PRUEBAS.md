@@ -81,7 +81,13 @@ Medido en Chromium con 2 núcleos (el iPhone tiene 6, así que allí debería re
 - **Calidad de voz** (Ajustes → Voz): Rápida (3 pasos, por defecto), Equilibrada (4) y Natural (5). Transcripción automática de la misma frase con voz femenina y masculina: con 5 y 3 pasos se entiende igual (una sílaba dudosa con 3 pasos en la voz masculina); con 2 pasos se cambian palabras («competencia» → «convidencia»), por eso no se ofrece. Preparación: factor 0,94 → 0,65 con un proceso y 0,55 → 0,39 con dos.
 - **Hasta 3 procesos**: «Automática» usa 3 en equipos de 6 núcleos (iPhone Pro); si la app se cierra por memoria baja uno. En el equipo de prueba (2 núcleos) 3 procesos no aportan, como era de esperar.
 - **Escuchar mientras termina de preparar:** «Preparar todo» puede empezar a sonar sola cuando hay suficiente audio adelantado para que la lectura no alcance a la preparación (umbral calculado con la velocidad medida del equipo, nunca más del 50 %). Prueba: empezó al 20 % desde el primer párrafo y terminó sin errores.
-- Regresión completa: 61/61 fases superadas; cuentas en la nube 16/16.
+- Regresión completa: 67/67 fases superadas; cuentas en la nube 16/16.
+
+## 2h. Asistente de estudio con IA en el equipo (añadido)
+
+Motor WebLLM (tarjeta gráfica, WebGPU) con modelos Qwen: Equilibrado (Qwen3 1,7B, por defecto), Ligero (Qwen2.5 1,5B) y Más capaz (Qwen3 4B). Funciones: resumen por partes, preguntas de repaso que se convierten en tarjetas, preguntas libres sobre el texto (con páginas) y «Explicar con IA» en cada párrafo.
+- Probado aquí con un motor simulado (este entorno no tiene tarjeta gráfica ni acceso a los modelos): interfaz, partición del texto, resumen en dos niveles, tarjetas, notas, preguntas con páginas y explicación. 7/7.
+- **No probado todavía con el modelo real.** Se verifica en el iPhone con Ajustes → Inteligencia artificial → «Descargar y probar».
 
 ## 3. Pendiente de verificar en iPhone/iPad (no probado)
 

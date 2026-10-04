@@ -55,7 +55,7 @@ self.addEventListener('fetch', (event) => {
     try {
       const r = await fetch(req);
       // Guardar bajo demanda archivos auxiliares (p. ej., tablas de PDF.js)
-      if (r.ok && url.pathname.includes('/vendor/pdfjs/')) app.put(req, r.clone());
+      if (r.ok && (url.pathname.includes('/vendor/pdfjs/') || url.pathname.includes('/vendor/webllm/'))) app.put(req, r.clone());
       return r;
     } catch (e) {
       return new Response('Sin conexión', { status: 503, headers: { 'Content-Type': 'text/plain; charset=utf-8' } });

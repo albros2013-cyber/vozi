@@ -20,7 +20,8 @@ export async function vistaLeer(main, opciones = {}) {
     btn('marcador', 'Marcadores', () => panelMarcadores()),
     btn('texto', 'Tamaño de letra', () => panelLetra()),
     btn('foco', 'Modo concentración', () => alternarFoco()),
-    btn('editar', 'Editar texto', () => editarTexto()));
+    btn('editar', 'Editar texto', () => editarTexto()),
+    btn('ia', 'Asistente de estudio con IA', () => import('./ia.js').then((m) => m.panelIA())));
 
   // El texto pintado se reutiliza al volver a «Leer» (no se reconstruyen miles de párrafos)
   const marcadores = new Set((await db.byIndex('bookmarks', 'docId', doc.id)).map((b) => b.pid));
@@ -198,6 +199,7 @@ async function menuParrafo(idx) {
         acc(tieneMarca ? '🔖 Quitar marcador' : '🔖 Añadir marcador', () => alternarMarcador(p, tieneMarca)),
         acc('✎ Escribir una nota sobre este párrafo', () => nuevaNota(p)),
         acc('❝ Guardar el párrafo como cita', () => crearCita(p, p.text)),
+        acc('✨ Explicar con IA', () => import('./ia.js').then((m) => m.explicarConIA(idx))),
         acc('🗂 Crear tarjeta de repaso', () => nuevaTarjeta(p)),
         acc(p.kind === 'pie' ? '¶ Es texto normal (la voz lo leerá)' : '¶ Es una nota al pie (la voz la omitirá)', () => alternarPie(idx)),
         acc('⧉ Copiar texto', () => { navigator.clipboard && navigator.clipboard.writeText(p.text).then(() => aviso('Texto copiado.'), () => aviso('No se pudo copiar.')); }))),

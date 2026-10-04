@@ -2,3 +2,4 @@ res/
 _modelos/
 tests/out/
 *.log
+vendor/webllm/
