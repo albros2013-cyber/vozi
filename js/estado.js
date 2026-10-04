@@ -14,6 +14,7 @@ export const AJUSTES_DEF = {
   numSteps: 5,
   diccionario: [],          // [{escrito, dicho}]
   prepararSiguiente: true,  // preparar el siguiente tramo mientras se escucha
+  leerNotasPie: false,      // las notas al pie se muestran pero la voz las omite
   procesos: 1,              // procesos de síntesis en paralelo (2 = más rápido, más memoria)
 };
 

@@ -16,7 +16,7 @@ export function hashTexto(s) {
 
 // Planifica un tramo a partir del párrafo `inicio`. Termina en un final de párrafo cuando
 // la duración estimada alcanza `minutos`.
-export function planificarTramo(doc, inicio, minutos, cps, diccionario) {
+export function planificarTramo(doc, inicio, minutos, cps, diccionario, { leerNotasPie = false } = {}) {
   const objetivo = minutos * 60;
   const items = [];
   const parrafos = [];
@@ -24,6 +24,7 @@ export function planificarTramo(doc, inicio, minutos, cps, diccionario) {
   for (let i = inicio; i < doc.paragraphs.length; i++) {
     const p = doc.paragraphs[i];
     if (!p.text.trim()) continue;
+    if (p.kind === 'pie' && !leerNotasPie) continue; // notas al pie: se muestran, la voz las omite
     const oraciones = dividirOraciones(p.text);
     oraciones.forEach((o, si) => {
       const original = p.text.slice(o.start, o.end);

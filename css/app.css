@@ -304,3 +304,6 @@ body.modo-foco .boton-cita { bottom: calc(var(--alto-reproductor) + env(safe-are
   .cabecera-acciones:not(:empty) { order: 3; width: 100%; justify-content: space-between; margin: 0 -6px; }
   .barra-busqueda { top: calc(env(safe-area-inset-top) + 110px); }
 }
+
+/* Notas al pie: visibles pero discretas; la voz las omite por defecto */
+.parrafo.es-pie { font-size: .8em; color: var(--texto-suave); border-left: 2px solid var(--borde); border-radius: 0 10px 10px 0; padding-left: 12px; }

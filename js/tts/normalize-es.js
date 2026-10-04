@@ -296,6 +296,12 @@ export function normalizar(texto, opciones = {}) {
       return pre + cifraALetras(cifra, g) + (_sp || '');
     });
 
+  t = t.replace(/\b(k?m)([²³])/g, (_, u, e) => (u === 'km' ? 'kilómetro' : 'metro') + (e === '²' ? ' cuadrado' : ' cúbico'));
+  // Llamadas de nota (superíndices) no se leen: «empresa¹» → «empresa»
+  t = t.replace(/(?<![mk])[⁰¹²³⁴⁵⁶⁷⁸⁹†]+/gu, '');
+  // Al inicio de una nota al pie: «¹ Ver…» / «1. Ver…» se lee «Nota 1. Ver…»
+  t = t.replace(/^\s*([⁰¹²³⁴⁵⁶⁷⁸⁹]+)\s*/u, '');
+
   // Viñetas y guiones al inicio
   t = t.replace(/(^|\n)\s*[•▪◦●■□➢►–—-]\s+/g, '$1');
 

@@ -50,8 +50,16 @@ async function lineasDePagina(page) {
     if (!('str' in it)) continue;
     const [a, b, c, d, x, y] = it.transform;
     const h = Math.hypot(c, d) || it.height || 10;
-    if (cur && Math.abs(y - cur.y) > h * 0.6) cerrar();
+    // Llamada de nota (número volado pequeño): se conserva como superíndice y la voz la omite
+    const volado = cur && it.str && /^\s*[\d*†]{1,3}\s*$/.test(it.str) && h < cur.hmax * 0.8 && y > cur.y + cur.hmax * 0.15 && y - cur.y < cur.hmax * 0.9;
+    if (cur && !volado && Math.abs(y - cur.y) > Math.max(h, cur.hmax) * 0.6) cerrar();
     if (!cur) cur = { x, y, h, text: '', xEnd: x, hmax: h };
+    if (volado) {
+      cur.text = cur.text.replace(/\s+$/, '') + aSuperindice(it.str.trim());
+      cur.xEnd = x + (it.width || 0);
+      if (it.hasEOL) cerrar();
+      continue;
+    }
     if (it.str) {
       const gap = x - cur.xEnd;
       const necesitaEspacio = cur.text && !/\s$/.test(cur.text) && !/^\s/.test(it.str) && gap > h * 0.12;
@@ -64,6 +72,23 @@ async function lineasDePagina(page) {
   cerrar();
   for (const l of lineas) l.text = l.text.replace(/\s+/g, ' ').trim();
   return { lineas: lineas.filter((l) => l.text), ancho: vp.width, alto: vp.height };
+}
+
+const SUP = { 0: '⁰', 1: '¹', 2: '²', 3: '³', 4: '⁴', 5: '⁵', 6: '⁶', 7: '⁷', 8: '⁸', 9: '⁹', '*': '*', '†': '†' };
+function aSuperindice(t) { return t.split('').map((c) => SUP[c] || c).join(''); }
+
+// Detecta el bloque de notas al pie: letra más pequeña que el cuerpo, en la parte baja de la página,
+// y que empieza con una llamada (número, asterisco o superíndice).
+function marcarNotasAlPie(p, hCuerpo) {
+  const ls = p.lineas;
+  let i = ls.length - 1;
+  while (i >= 0 && ls[i].y < p.alto * 0.5 && ls[i].hmax <= hCuerpo * 0.88) i--;
+  let ini = i + 1;
+  if (ini >= ls.length) return;
+  // El bloque debe empezar con una llamada de nota
+  while (ini < ls.length && !/^\s*([\d¹²³⁴⁵⁶⁷⁸⁹⁰]{1,3}|[*†])[\s.)]?/.test(ls[ini].text)) ini++;
+  if (ini >= ls.length) return;
+  for (let k = ini; k < ls.length; k++) ls[k].pie = true;
 }
 
 function mediana(arr) { if (!arr.length) return 0; const s = [...arr].sort((a, b) => a - b); return s[s.length >> 1]; }
@@ -143,6 +168,10 @@ export async function importarPdf(abierto, { desde = 1, hasta, forzarOcr = false
       return !(paginas.length >= 2 && conteo.get(claveRepeticion(l.text)) >= umbral && l.text.length < 120);
     });
   }
+  // 2b) Notas al pie (solo texto digital)
+  const hCuerpo = mediana(paginas.flatMap((p) => p.lineas.map((l) => l.hmax)));
+  if (hCuerpo) for (const p of paginas) marcarNotasAlPie(p, hCuerpo);
+
   // 3) OCR donde haga falta
   const necesitanOcr = paginas.filter((p) => forzarOcr || p.calidad < 0.6);
   const sinOcr = [];
@@ -178,10 +207,20 @@ export async function importarPdf(abierto, { desde = 1, hasta, forzarOcr = false
   for (const p of paginas) {
     let pars;
     if (p.ocr) pars = reconstruirParrafos(p.ocr.texto).map((t) => ({ text: t, kind: 'p', ocr: true }));
-    else pars = parrafosDeLineas(p.lineas, p.ancho);
+    else {
+      pars = parrafosDeLineas(p.lineas.filter((l) => !l.pie), p.ancho);
+      // Cada nota al pie empieza en una línea con su llamada
+      const pies = [];
+      for (const l of p.lineas.filter((x) => x.pie)) {
+        if (!pies.length || /^\s*([\d¹²³⁴⁵⁶⁷⁸⁹⁰]{1,3}|[*†])[\s.)]?/.test(l.text)) pies.push(l.text);
+        else pies[pies.length - 1] = juntar(pies[pies.length - 1], l.text);
+      }
+      pars.push(...pies.map((t) => ({ text: t, kind: 'pie' })));
+    }
     // Unir párrafo partido entre páginas (sin punto final y la siguiente empieza en minúscula)
     if (paragraphs.length && pars.length) {
-      const ult = paragraphs[paragraphs.length - 1];
+      let ult = paragraphs[paragraphs.length - 1];
+      for (let k = paragraphs.length - 1; k >= 0 && paragraphs[k].kind === 'pie'; k--) ult = paragraphs[k - 1] || ult;
       if (ult.kind === 'p' && !/[.!?:"”»)]$/.test(ult.text) && /^\p{Ll}/u.test(pars[0].text)) {
         ult.text = juntar(ult.text, pars[0].text);
         ult.pageEnd = p.n;
@@ -192,7 +231,7 @@ export async function importarPdf(abierto, { desde = 1, hasta, forzarOcr = false
   }
   const ocrConf = paginas.filter((p) => p.ocr).map((p) => ({ n: p.n, confianza: p.ocr.confianza }));
   for (const p of paginas) p.page.cleanup();
-  return { paragraphs, paginasOcr: ocrConf, paginasSinTexto: sinOcr, desde, hasta };
+  return { paragraphs, paginasOcr: ocrConf, paginasSinTexto: sinOcr, desde, hasta, notasAlPie: paragraphs.filter((x) => x.kind === 'pie').length };
 }
 
 function abortado() { const e = new Error('Importación cancelada'); e.name = 'AbortError'; return e; }

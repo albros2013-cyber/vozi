@@ -38,7 +38,7 @@ export async function vistaLeer(main, opciones = {}) {
       frag.append(h('div', { class: 'marca-pagina', id: `pag-${p.page}`, 'data-page': p.page }, `Página ${p.page}`, p.ocr ? h('span', { class: 'etiqueta' }, 'OCR') : null));
     }
     const el = h(p.kind === 'h' ? 'h3' : 'p', {
-      class: 'parrafo' + (marcadores.has(p.id) ? ' con-marcador' : '') + (conNotas.has(p.id) ? ' con-nota' : ''),
+      class: 'parrafo' + (p.kind === 'pie' ? ' es-pie' : '') + (marcadores.has(p.id) ? ' con-marcador' : '') + (conNotas.has(p.id) ? ' con-nota' : ''),
       'data-pid': p.id, 'data-idx': i, tabindex: '-1',
     }, p.text);
     frag.append(el);
@@ -189,9 +189,21 @@ async function menuParrafo(idx) {
         acc('✎ Escribir una nota sobre este párrafo', () => nuevaNota(p)),
         acc('❝ Guardar el párrafo como cita', () => crearCita(p, p.text)),
         acc('🗂 Crear tarjeta de repaso', () => nuevaTarjeta(p)),
+        acc(p.kind === 'pie' ? '¶ Es texto normal (la voz lo leerá)' : '¶ Es una nota al pie (la voz la omitirá)', () => alternarPie(idx)),
         acc('⧉ Copiar texto', () => { navigator.clipboard && navigator.clipboard.writeText(p.text).then(() => aviso('Texto copiado.'), () => aviso('No se pudo copiar.')); }))),
     botones: [{ texto: 'Cerrar', valor: null }],
   });
+}
+
+async function alternarPie(idx) {
+  const doc = ctx.doc;
+  const p = doc.paragraphs[idx];
+  p.kind = p.kind === 'pie' ? 'p' : 'pie';
+  doc.updatedAt = Date.now();
+  await db.put('docs', doc);
+  const el = estadoVista && estadoVista.texto.querySelector(`[data-pid="${p.id}"]`);
+  el && el.classList.toggle('es-pie', p.kind === 'pie');
+  aviso(p.kind === 'pie' ? 'Marcado como nota al pie: la voz lo omitirá.' : 'Marcado como texto normal: la voz lo leerá.');
 }
 
 async function alternarMarcador(p, existente) {

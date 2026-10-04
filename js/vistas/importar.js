@@ -135,7 +135,7 @@ async function flujoPdf(main, file) {
   revisar(main, {
     titulo: abierto.titulo && abierto.titulo.length > 3 ? abierto.titulo : file.name.replace(/\.pdf$/i, ''),
     paragraphs: r.paragraphs, paginas: abierto.numPages, rango: [r.desde, r.hasta],
-    paginasOcr: r.paginasOcr, paginasSinTexto: r.paginasSinTexto,
+    paginasOcr: r.paginasOcr, paginasSinTexto: r.paginasSinTexto, notasAlPie: r.notasAlPie,
     source: { type: 'pdf', name: file.name, size: file.size },
   });
 }
@@ -214,6 +214,9 @@ function vistaRevision(main) {
     cont.append(h('div', { class: 'aviso-ocr ' + (bajas.length ? 'falta' : 'ok') },
       `Texto reconocido con OCR en ${d.paginasOcr.length} página(s). `,
       bajas.length ? `Confianza baja en: ${bajas.map((p) => p.n).join(', ')}. Revisa esas páginas.` : 'Revisa nombres propios, cifras y signos.'));
+  }
+  if (d.notasAlPie) {
+    cont.append(h('div', { class: 'aviso-ocr ok' }, `Se detectaron ${d.notasAlPie} nota(s) al pie. Se conservan en el texto y la voz las omite (puedes cambiarlo en Ajustes → Lectura, o tocando el párrafo).`));
   }
   if (d.paginasSinTexto && d.paginasSinTexto.length) {
     cont.append(h('div', { class: 'aviso-ocr falta' }, `Sin texto (requieren OCR): páginas ${resumirPaginas(d.paginasSinTexto)}.`));

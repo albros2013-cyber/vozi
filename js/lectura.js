@@ -57,7 +57,7 @@ async function obtenerTramo(doc, inicioIdx, minutos, { visible, signal }) {
     e.faltan = faltan;
     throw e;
   }
-  const plan = planificarTramo(doc, inicioIdx, minutos, ctx.ajustes.cps, ctx.ajustes.diccionario);
+  const plan = planificarTramo(doc, inicioIdx, minutos, ctx.ajustes.cps, ctx.ajustes.diccionario, { leerNotasPie: !!ctx.ajustes.leerNotasPie });
   if (!plan.items.length) return null;
   const guardado = await buscarTramoGuardado(doc, plan, voz, ctx.ajustes);
   if (guardado) return guardado;

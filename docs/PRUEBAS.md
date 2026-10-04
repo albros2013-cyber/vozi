@@ -35,6 +35,10 @@ No se afirma que la voz sea humana ni que iguale a NotebookLM: no se hizo una co
 
 Velocidad de preparación (este equipo, 1 núcleo por proceso): factor 0,97 con 1 proceso (5 min de audio ≈ 5 min de espera) y 0,55 con 2 procesos. Piper (voz ligera): factor ≈0,3.
 
+## 2b. Notas al pie (añadido)
+
+PDF de prueba con 2 notas por página (una de dos líneas) y llamadas voladas: las 4 notas se detectan, la de dos líneas se une, las llamadas quedan como superíndice («precios¹») y la voz omite notas y llamadas. Detección solo en PDF con texto digital; en páginas escaneadas (OCR) se puede marcar a mano tocando el párrafo.
+
 ## 3. Pendiente de verificar en iPhone/iPad (no probado)
 
 - Que Safari reserve la memoria del motor (512 MB iniciales por proceso). En equipos con poca memoria podría fallar; la voz ligera usa la misma reserva. Corregirlo exige recompilar sherpa-onnx con menos memoria inicial.

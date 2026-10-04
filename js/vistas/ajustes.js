@@ -98,6 +98,8 @@ function seccionLectura() {
     interruptor('Empezar rápido: el primer tramo dura 1 minuto', 'primerTramoCorto'),
     interruptor('Preparar el siguiente tramo mientras escucho', 'prepararSiguiente'),
     interruptor('Desplazar el texto siguiendo la lectura', 'seguirLectura'),
+    interruptor('Leer en voz alta las notas al pie', 'leerNotasPie', () => ctx.rep.descargar()),
+    h('p', { class: 'nota-suave' }, 'En los PDF, VOZI detecta las notas al pie (letra pequeña al final de la página) y las llamadas de nota (números volados). Siempre se muestran en el texto; por defecto la voz las omite. Encabezados, pies de página repetidos y números de página se quitan al importar.'),
     h('h3', {}, 'Velocidad de preparación'),
     h('p', { class: 'nota-suave' }, 'Con «Rápida», VOZI usa dos procesos a la vez: prepara el audio casi el doble de rápido en equipos con varios núcleos, pero necesita el doble de memoria (unos 600 MB). Si la app se cierra sola, vuelve a «Normal».'),
     opcionesProcesos(),

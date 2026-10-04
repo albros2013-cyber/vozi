@@ -249,6 +249,27 @@ if (quiere('pdf')) {
   const pags = await page.$$eval('.marca-pagina', (e) => e.map((x) => x.dataset.page));
   ok('PDF digital: relación texto-página conservada', pags.join(',') === '1,2', pags.join(','));
 }
+if (quiere('notas')) {
+  await importarArchivo(FIX + 'notas.pdf');
+  await page.waitForSelector('button:has-text("Importar")', { timeout: 30000 });
+  await page.click('.vista button.primario:has-text("Importar")');
+  await page.waitForSelector('.vista-revision', { timeout: 60000 });
+  const av = await page.$$eval('.vista-revision .aviso-ocr', (e) => e.map((x) => x.textContent).join(' '));
+  await page.click('button:has-text("Guardar en la biblioteca")');
+  await page.waitForSelector('.texto-lectura .parrafo');
+  const r = await page.evaluate(async () => {
+    const d = window.__vozi.ctx.doc;
+    const { planificarTramo } = await import('./js/tts/tramos.js');
+    const plan = planificarTramo(d, 0, 10, 13.5, []);
+    return { pies: d.paragraphs.filter((p) => p.kind === 'pie').map((p) => p.text), cuerpo: d.paragraphs.filter((p) => p.kind !== 'pie').map((p) => p.text), voz: plan.items.map((i) => i.text).join(' ') };
+  });
+  fs.writeFileSync(OUT + '/notas.json', JSON.stringify(r, null, 1));
+  ok('Notas al pie detectadas (2 por página)', r.pies.length === 4, r.pies[0] + ' | ' + r.pies[1]);
+  ok('Nota de varias líneas unida', r.pies.some((t) => t.includes('efecto en la negociación')));
+  ok('Llamadas de nota conservadas como superíndice en el texto', r.cuerpo.some((t) => /precios¹/.test(t)), r.cuerpo[0]);
+  ok('La voz omite notas al pie y llamadas', !/Banco de la República|indexación y su efecto/.test(r.voz) && !/[¹²]/.test(r.voz) && /precios durante/.test(r.voz), r.voz.slice(0, 120));
+  ok('Aviso de notas detectadas al revisar', /nota\(s\) al pie/.test(av), av.slice(0, 80));
+}
 if (quiere('escaneado')) {
   await importarArchivo(FIX + 'escaneado.pdf');
   await page.waitForSelector('button:has-text("Importar")', { timeout: 30000 });
