@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>VOZI · Créditos y licencias</title>
+<style>
+:root { --fondo:#F7F3EA; --sup:#FFFDF8; --texto:#1E2621; --suave:#5A6259; --verde:#1F4D3A; --borde:#DDD5C4; color-scheme: light; }
+@media (prefers-color-scheme: dark) { :root { --fondo:#121714; --sup:#1A211D; --texto:#E9E5DB; --suave:#A7B0A8; --verde:#8CC3A6; --borde:#34403A; color-scheme: dark; } }
+body { margin:0; background:var(--fondo); color:var(--texto); font:17px/1.55 -apple-system, BlinkMacSystemFont, system-ui, sans-serif; }
+main { max-width:760px; margin:0 auto; padding:calc(env(safe-area-inset-top) + 20px) 16px 40px; }
+h1 { color:var(--verde); } h2 { font-size:19px; margin-top:28px; }
+table { width:100%; border-collapse:collapse; font-size:15px; } th, td { text-align:left; padding:8px 6px; border-bottom:1px solid var(--borde); vertical-align:top; }
+.caja { background:var(--sup); border:1px solid var(--borde); border-radius:14px; padding:12px 16px; }
+a { color:var(--verde); } li { margin:6px 0; }
+</style>
+</head>
+<body>
+<main>
+<p><a href="./index.html">← Volver a VOZI</a></p>
+<h1>Créditos y licencias</h1>
+<p>VOZI es gratuita y funciona en tu dispositivo. Usa los siguientes modelos y programas de terceros, distribuidos según sus licencias.</p>
+
+<h2>Modelos de voz</h2>
+<table>
+<tr><th>Modelo</th><th>Uso en VOZI</th><th>Licencia</th><th>Descarga</th></tr>
+<tr><td>Supertonic 3 (Supertone Inc.), versión int8 2026-05-11 convertida por sherpa-onnx</td><td>Voces naturales Valeria, Camila, Mateo y Andrés</td><td>Modelo: <a href="licenses/bigscience-open-rail-m.txt">BigScience Open RAIL-M</a> · Código de ejemplo: <a href="licenses/supertonic-code-MIT.txt">MIT</a></td><td>145 MB</td></tr>
+<tr><td>Piper «es_MX-claude-high» (entrenado con el conjunto de HirCoir)</td><td>Voz ligera Lucía</td><td><a href="licenses/apache-2.0.txt">Apache 2.0</a> (según su ficha)</td><td>64 MB</td></tr>
+<tr><td>Piper «es_MX-ald-medium» (conjunto Ald Mexican Spanish de rmcpantoja)</td><td>Voz ligera Diego</td><td><a href="licenses/unlicense.txt">Unlicense</a> (dominio público, según su ficha)</td><td>64 MB</td></tr>
+</table>
+
+<div class="caja">
+<p><strong>Condiciones de uso del modelo Supertonic 3 (Open RAIL-M).</strong> Al usar las voces naturales aceptas no usarlas, entre otros casos, para: infringir la ley; dañar a menores; difundir información falsa para perjudicar; difamar o acosar; suplantar a otras personas sin su consentimiento; ni difundir contenido sin indicar claramente que fue generado por una máquina. Consulta la lista completa en el <a href="licenses/bigscience-open-rail-m.txt">texto de la licencia (Anexo A)</a>.</p>
+<p>El audio que produce VOZI es <strong>voz sintética generada por máquina</strong>. Si compartes audios generados, indícalo.</p>
+</div>
+
+<h2>Programas</h2>
+<ul>
+<li><strong>sherpa-onnx 1.13.8</strong> (k2-fsa) — motor de síntesis compilado a WebAssembly. <a href="licenses/sherpa-onnx-LICENSE.txt">Apache 2.0</a>. Código fuente: <a href="https://github.com/k2-fsa/sherpa-onnx">github.com/k2-fsa/sherpa-onnx</a>. Modificación de VOZI: una línea en el cargador para leer los modelos desde el almacenamiento local en vez de un paquete fijo.</li>
+<li><strong>ONNX Runtime</strong> (Microsoft) — incluido en el motor anterior. Licencia MIT. <a href="https://github.com/microsoft/onnxruntime">github.com/microsoft/onnxruntime</a>.</li>
+<li><strong>espeak-ng</strong> — conversión de texto a fonemas para las voces ligeras, incluido en el motor anterior. <a href="licenses/gpl-3.0.txt">GPL 3.0</a>. Código fuente: <a href="https://github.com/espeak-ng/espeak-ng">github.com/espeak-ng/espeak-ng</a>.</li>
+<li><strong>Tesseract OCR</strong> y <strong>tesseract.js-core 7.0.0</strong> — reconocimiento de texto. <a href="licenses/tesseract.js-core-LICENSE.txt">Apache 2.0</a>. Datos en español «tessdata_best»: <a href="licenses/tessdata-LICENSE.txt">Apache 2.0</a>.</li>
+<li><strong>PDF.js 4.10.38</strong> (Mozilla) — lectura de PDF. <a href="licenses/pdfjs-LICENSE.txt">Apache 2.0</a>.</li>
+</ul>
+
+<h2>Código de VOZI</h2>
+<p>El código propio de VOZI (interfaz, normalización del español, preparación de tramos, importación y estudio) puede usarse, copiarse y modificarse libremente.</p>
+
+<h2>Privacidad</h2>
+<p>VOZI no tiene cuentas, anuncios ni analítica. Tus documentos, notas y audios se procesan y guardan solo en este dispositivo. La app solo se conecta a internet para descargar la propia app y los recursos que tú pidas descargar.</p>
+</main>
+</body>
+</html>

@@ -1,0 +1,21 @@
+<!doctype html><meta charset="utf-8"><body><pre id="log"></pre><script type="module">
+const log=(m)=>{document.getElementById('log').textContent+=m+'\n'; console.log(m)};
+const man=await (await fetch('../res/manifest.json')).json();
+const params=new URLSearchParams(location.search); const pid=params.get('pack')||'voz-supertonic3';
+const p=man.packs.find(x=>x.id===pid);
+const files={}; for(const f of p.files) files[f.fs]=f.chunks.map(c=>new URL('../'+c.url,location.href).href);
+let config;
+if(p.engine==='supertonic') config={offlineTtsModelConfig:{supertonic:{durationPredictor:'/st/duration_predictor.int8.onnx',textEncoder:'/st/text_encoder.int8.onnx',vectorEstimator:'/st/vector_estimator.int8.onnx',vocoder:'/st/vocoder.int8.onnx',ttsJson:'/st/tts.json',unicodeIndexer:'/st/unicode_indexer.bin',voiceStyle:'/st/voice.bin'},numThreads:1,debug:0,provider:'cpu'},maxNumSentences:1};
+else { const v=p.id.replace('voz-',''); config={offlineTtsModelConfig:{vits:{model:`/${v}/model.onnx`,tokens:`/${v}/tokens.txt`,dataDir:`/${v}/espeak-ng-data`,noiseScale:0.667,noiseScaleW:0.8,lengthScale:1},numThreads:1,debug:0,provider:'cpu'},maxNumSentences:1}; }
+const w=new Worker('../js/tts/tts-worker.js');
+const t0=performance.now();
+const ready=new Promise((res,rej)=>{w.onmessage=(e)=>{const m=e.data; if(m.type==='ready')res(m); else if(m.type==='error')rej(new Error(m.message)); else if(m.type==='status')log('status '+m.stage+' '+m.progress.toFixed(2));}});
+w.postMessage({type:'init',engineBase:new URL('../vendor/sherpa/',location.href).href,cacheName:null,voice:{engine:p.engine,files,config,totalBytes:p.size}});
+const r=await ready; log(`READY sr=${r.sampleRate} speakers=${r.numSpeakers} load=${((performance.now()-t0)/1000).toFixed(1)}s init=${(r.initMs/1000).toFixed(1)}s`);
+const items=[{id:'a',text:'¿Qué factores explican el crecimiento de la empresa?'},{id:'b',text:'En dos mil veinticinco, las ventas aumentaron treinta y dos por ciento.'}];
+const sid=+(params.get('sid')||0);
+const done=new Promise((res)=>{w.onmessage=(e)=>{const m=e.data; if(m.type==='item')log(`item ${m.id} samples=${m.samples.length} sr=${m.sampleRate} audio=${m.audioSeg.toFixed(2)}s elapsed=${(m.elapsedMs/1000).toFixed(2)}s retries=${m.reintentos}`); if(m.type==='done')res(m); if(m.type==='error'){log('ERR '+m.message);res(m);}}});
+w.postMessage({type:'synth',jobId:1,items,sid,speed:1.0,numSteps:5,lang:p.engine==='supertonic'?'es':undefined});
+const d=await done; log(`DONE RTF=${(d.elapsedMs/1000/d.audioSeg).toFixed(3)} mem=${performance.memory?Math.round(performance.memory.usedJSHeapSize/1e6):'?'}MB`);
+window.__done=true;
+</script>

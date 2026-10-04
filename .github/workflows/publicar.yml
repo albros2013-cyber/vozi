@@ -1,0 +1,40 @@
+name: Publicar VOZI en GitHub Pages
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+concurrency:
+  group: pages
+  cancel-in-progress: true
+jobs:
+  construir:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Descargar modelos de voz y OCR
+        run: bash tools/descargar_modelos.sh
+      - name: Preparar recursos troceados y verificados
+        run: python3 tools/build_res.py supertonic es_MX-ald-medium es_MX-claude-high ocr motor
+      - name: Generar service worker
+        run: python3 tools/build_sw.py
+      - name: Armar sitio
+        run: |
+          mkdir _site
+          cp -r index.html licencias.html manifest.webmanifest sw.js css js icons samples licenses vendor res _site/
+          touch _site/.nojekyll
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+  publicar:
+    needs: construir
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.despliegue.outputs.page_url }}
+    steps:
+      - id: despliegue
+        uses: actions/deploy-pages@v4

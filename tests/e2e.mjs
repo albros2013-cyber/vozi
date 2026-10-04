@@ -1,0 +1,325 @@
+// VOZI — Prueba de extremo a extremo en Chromium (Playwright).
+// Ejecuta: node tests/e2e.mjs [fase...]   (servidor en http://127.0.0.1:8080)
+import { chromium } from '/home/claude/.npm-global/lib/node_modules/playwright/index.mjs';
+import fs from 'node:fs';
+
+const BASE = process.env.BASE || 'http://127.0.0.1:8080/';
+const OUT = '/home/claude/vozi/tests/out';
+fs.mkdirSync(OUT, { recursive: true });
+const FIX = '/home/claude/vozi/tests/fixtures/';
+const fases = process.argv.slice(2);
+const quiere = (f) => !fases.length || fases.includes(f);
+const resultados = [];
+const ok = (nombre, cond, detalle = '') => { resultados.push({ nombre, ok: !!cond, detalle }); console.log(`${cond ? 'PASA' : 'FALLA'} · ${nombre}${detalle ? ' · ' + detalle : ''}`); };
+
+const TEXTO = `Capítulo 1. Estrategia comercial
+
+¿Qué factores explican el crecimiento de una empresa en un mercado competitivo? Según el Dr. Pérez, en 2025 las ventas aumentaron 32 % y el margen operativo llegó a 18,5 %, lo que equivale a $1.500.000 por cliente.
+
+Sin embargo, la directora advirtió: ¡no podemos confiarnos! La competencia regional se intensificó durante el segundo semestre del año.
+
+Para el análisis del caso, los estudiantes deberán identificar a los actores principales (p. ej., clientes y proveedores) y justificar cuál alternativa resulta más conveniente antes del 15/11/2026.
+
+Capítulo 2. Indicadores
+
+La tasa de retención de clientes pasó del 71 % al 78 % entre 2023 y 2025. ¿Fue suficiente? Los analistas consideran que sí, aunque recomiendan revisar el costo de adquisición, que subió a $85.000 por cliente.
+
+Finalmente, el informe propone tres acciones: fortalecer la capacitación, simplificar el portafolio y medir cada trimestre la satisfacción de los usuarios. La Sra. Gómez concluyó que la disciplina operativa sería decisiva durante los próximos 18 meses.`;
+
+const browser = await chromium.launch({ args: ['--autoplay-policy=no-user-gesture-required'] });
+const context = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
+const page = await context.newPage();
+const errores = [];
+page.on('pageerror', (e) => errores.push(e.message));
+page.on('console', (m) => { if (m.type() === 'error') errores.push(m.text()); });
+
+async function abrirApp() {
+  await page.goto(BASE + 'index.html');
+  await page.waitForFunction(() => window.__voziListo, null, { timeout: 60000 });
+}
+async function irA(vista) { await page.click(`#pestanas button[data-vista="${vista}"]`); await page.waitForTimeout(600); }
+async function elegir(selectorBoton, archivo) {
+  const [fc] = await Promise.all([page.waitForEvent('filechooser'), page.click(selectorBoton)]);
+  await fc.setFiles(archivo);
+}
+const esperar = (ms) => page.waitForTimeout(ms);
+async function textoAviso() { return page.$eval('#aviso', (e) => e.textContent); }
+
+await abrirApp();
+ok('La app carga sin errores', errores.length === 0, errores.join(' | '));
+
+// 1) Descarga de recursos sin conexión
+if (quiere('recursos')) {
+  await irA('ajustes');
+  await page.click('#sec-recursos summary');
+  await page.waitForSelector('#sec-recursos .caja-destacada', { timeout: 30000 });
+  const t0 = Date.now();
+  const boton = await page.$('#sec-recursos .caja-destacada button');
+  if (boton) {
+    await boton.click();
+    await page.waitForFunction(() => document.querySelector('#sec-recursos .caja-destacada.ok'), null, { timeout: 600000 });
+  }
+  ok('Descarga explícita de voz, motor y OCR completa', await page.$('#sec-recursos .caja-destacada.ok'), `${Math.round((Date.now() - t0) / 1000)} s`);
+  const cacheInfo = await page.evaluate(async () => { const c = await caches.open('vozi-res-v1'); return (await c.keys()).length; });
+  ok('Recursos guardados en caché local', cacheInfo > 10, `${cacheInfo} archivos`);
+  await page.screenshot({ path: OUT + '/recursos.png' });
+}
+
+// 2) Pegar texto y escuchar
+let docId = null;
+if (quiere('voz')) {
+  await irA('importar');
+  await page.click('.tarjeta-import:has-text("Pegar texto")');
+  await page.fill('.vista-revision textarea', TEXTO);
+  await page.fill('.vista-revision input.titulo', 'Prueba de lectura');
+  await page.click('button:has-text("Guardar en la biblioteca")');
+  await page.waitForSelector('.texto-lectura .parrafo', { timeout: 15000 });
+  docId = await page.evaluate(() => window.__vozi.ctx.doc.id);
+  const npars = await page.$$eval('.texto-lectura .parrafo', (e) => e.length);
+  ok('Texto pegado guardado como documento', npars === 7, `${npars} párrafos`);
+
+  const t0 = Date.now();
+  await page.click('#repPlay');
+  await page.waitForFunction(() => document.querySelector('#repEstado').textContent.includes('Preparando') || document.querySelector('#repEstado').textContent.includes('Cargando'), null, { timeout: 20000 });
+  const progresoVisto = [];
+  const tProg = setInterval(async () => { try { progresoVisto.push(await page.$eval('#repEstado', (e) => e.textContent)); } catch { } }, 1500);
+  await page.waitForFunction(() => window.__vozi.ctx.rep.reproduciendo && window.__vozi.ctx.rep.tiempo > 0.5, null, { timeout: 600000 });
+  clearInterval(tProg);
+  const prep = (Date.now() - t0) / 1000;
+  const info = await page.evaluate(() => ({ dur: window.__vozi.ctx.rep.duracion, n: window.__vozi.ctx.rep.tramo.tiempos.length, sint: window.__vozi.ctx.rep.tramo.segSintesis }));
+  ok('Audio real generado y reproduciéndose (voz femenina Valeria)', info.dur > 5, `tramo ${info.dur.toFixed(1)} s, ${info.n} piezas, síntesis ${info.sint.toFixed(1)} s, espera total ${prep.toFixed(1)} s, RTF ${(info.sint / info.dur).toFixed(2)}`);
+  ok('Progreso de preparación visible con porcentaje', progresoVisto.some((t) => /\d+ %/.test(t)), progresoVisto.slice(-2).join(' / '));
+  await esperar(1500);
+  const resalte = await page.evaluate(() => ({ p: !!document.querySelector('.parrafo.actual'), s: !!document.querySelector('.parrafo.actual .oracion.activa'), t: document.querySelector('.parrafo.actual .oracion.activa')?.textContent }));
+  ok('Párrafo y oración actuales resaltados durante la reproducción', resalte.p && resalte.s, resalte.t);
+  await page.screenshot({ path: OUT + '/lectura.png' });
+
+  // Guardar el WAV para análisis externo (continuidad, ASR, tono)
+  const wav = await page.evaluate(async () => {
+    const id = window.__vozi.ctx.rep.tramo.id;
+    const r = await window.__vozi.db.get('audioBlobs', id);
+    const b = new Uint8Array(await r.blob.arrayBuffer());
+    let s = ''; for (let i = 0; i < b.length; i += 32768) s += String.fromCharCode(...b.subarray(i, i + 32768));
+    return { b64: btoa(s), tiempos: window.__vozi.ctx.rep.tramo.tiempos };
+  });
+  fs.writeFileSync(OUT + '/tramo-valeria.wav', Buffer.from(wav.b64, 'base64'));
+  fs.writeFileSync(OUT + '/tramo-valeria.json', JSON.stringify(wav.tiempos, null, 1));
+
+  // Pausa, reanudación y velocidad
+  await page.click('#repPlay');
+  await esperar(400);
+  const t1 = await page.evaluate(() => window.__vozi.ctx.rep.tiempo);
+  await esperar(1200);
+  const t2 = await page.evaluate(() => window.__vozi.ctx.rep.tiempo);
+  ok('Pausa detiene el audio', Math.abs(t2 - t1) < 0.05 && !(await page.evaluate(() => window.__vozi.ctx.rep.reproduciendo)));
+  await page.click('#repPlay');
+  await esperar(1500);
+  const t3 = await page.evaluate(() => window.__vozi.ctx.rep.tiempo);
+  ok('Reanudación continúa desde el mismo punto', t3 > t2 && t3 - t2 < 3, `${t2.toFixed(2)} → ${t3.toFixed(2)} s`);
+  await page.click('#repVel');
+  await page.click('.dialogo .opcion:has-text("1,5×")');
+  await esperar(300);
+  const vel = await page.evaluate(() => ({ r: window.__vozi.ctx.rep.audio.playbackRate, p: window.__vozi.ctx.rep.audio.preservesPitch }));
+  ok('Velocidad 1,5× sin cambiar el tono (preservesPitch)', vel.r === 1.5 && vel.p === true, JSON.stringify(vel));
+  const a = await page.evaluate(() => window.__vozi.ctx.rep.tiempo); await esperar(2000);
+  const bb = await page.evaluate(() => window.__vozi.ctx.rep.tiempo);
+  ok('El audio avanza más rápido a 1,5×', (bb - a) > 2.4, `${(bb - a).toFixed(2)} s en 2 s`);
+  // Navegación por oración
+  const antes = await page.evaluate(() => window.__vozi.ctx.rep.posicionActual());
+  await page.click('#repAdelante'); await esperar(400);
+  const despues = await page.evaluate(() => window.__vozi.ctx.rep.posicionActual());
+  ok('Navegación a la oración siguiente', despues.idx === antes.idx + 1 || despues.idx > antes.idx, `${antes.idx} → ${despues.idx}`);
+  await page.click('#repVel'); await page.click('.dialogo .opcion:has-text("1×")');
+
+  // Esperar continuidad: debe pasar al siguiente tramo sin intervención
+  await page.waitForFunction(() => { const r = window.__vozi.ctx.rep; return r.tramo && r.tramo.inicio > 0 && r.reproduciendo; }, null, { timeout: 600000 }).then(
+    () => ok('Continúa automáticamente con el siguiente tramo', true),
+    () => ok('Continúa automáticamente con el siguiente tramo', false));
+  await page.click('#repPlay'); // pausa
+  await esperar(1500);
+}
+
+// 3) Cancelación de la preparación
+if (quiere('cancelar')) {
+  await page.evaluate(() => window.__vozi.ctx.rep.descargar());
+  await page.evaluate(async () => { const L = window.__vozi.L; for (const a of await window.__vozi.db.all('audio')) { await window.__vozi.db.del('audio', a.id); } });
+  await page.evaluate(() => { window.__vozi.L.escucharDesde(1); });
+  for (let i = 0; i < 40; i++) {
+    const st = await page.evaluate(() => [document.querySelector('#repEstado').textContent, document.querySelector('#aviso').textContent, JSON.stringify(window.__vozi.L.estadoLectura.preparando && { f: window.__vozi.L.estadoLectura.preparando.fase, x: window.__vozi.L.estadoLectura.preparando.fraccion })]);
+    if (st[0].includes('Preparando')) break;
+    if (i % 4 === 0) console.log('  esperando preparación…', st.join(' | '));
+    await esperar(1500);
+  }
+  await esperar(1500);
+  await page.click('#repEstado button:has-text("Cancelar")');
+  await page.waitForFunction(() => !window.__vozi.L.estadoLectura.preparando, null, { timeout: 30000 });
+  await esperar(500);
+  ok('Cancelar la preparación detiene el trabajo y avisa', !(await page.evaluate(() => window.__vozi.ctx.rep.reproduciendo)), await textoAviso());
+}
+
+// 4) Punto de lectura y notas tras reabrir
+if (quiere('reabrir')) {
+  await page.evaluate(() => window.__vozi.L.escucharDesde(2));
+  await page.waitForFunction(() => window.__vozi.ctx.rep.reproduciendo && window.__vozi.ctx.rep.tiempo > 1, null, { timeout: 600000 });
+  await esperar(1500);
+  await page.click('#repPlay');
+  await esperar(1500);
+  const pos = await page.evaluate(() => ({ ...window.__vozi.ctx.rep.posicionActual(), audioId: window.__vozi.ctx.rep.tramo.id }));
+  // Nota sobre un párrafo
+  await page.click('.texto-lectura .parrafo[data-idx="1"]');
+  await page.click('.dialogo .accion:has-text("Escribir una nota")');
+  await page.fill('.dialogo textarea', 'Revisar la cifra del margen operativo.');
+  await page.click('.dialogo .boton.primario');
+  await esperar(500);
+  await page.reload();
+  await page.waitForFunction(() => window.__voziListo, null, { timeout: 60000 });
+  await irA('leer');
+  await esperar(1500);
+  const rest = await page.evaluate(() => ({ pid: document.querySelector('.parrafo.actual')?.dataset.pid, audio: window.__vozi.ctx.rep.tramo && window.__vozi.ctx.rep.tramo.id, t: window.__vozi.ctx.rep.tiempo }));
+  ok('Al reabrir se recupera el párrafo y el audio guardado', rest.pid === pos.pid && rest.audio === pos.audioId, `pid ${rest.pid === pos.pid ? 'igual' : 'distinto'}, tiempo ${rest.t.toFixed(1)} s (guardado ${pos.tiempo.toFixed(1)} s)`);
+  await page.click('#repPlay');
+  await esperar(1500);
+  ok('El audio guardado se reproduce sin volver a sintetizar', await page.evaluate(() => window.__vozi.ctx.rep.reproduciendo && !window.__vozi.L.estadoLectura.preparando));
+  await page.click('#repPlay');
+  await irA('estudiar');
+  await esperar(800);
+  const nota = await page.$eval('.lista-notas', (e) => e.textContent).catch(() => '');
+  ok('Las notas se recuperan tras recargar', nota.includes('margen operativo'), nota.slice(0, 80));
+}
+
+// 5) Voz masculina
+if (quiere('masculina')) {
+  await irA('ajustes');
+  await page.click('label.voz[data-id="st-mateo"]');
+  await esperar(500);
+  await irA('leer');
+  await page.evaluate(() => window.__vozi.L.escucharDesde(1));
+  await page.waitForFunction(() => window.__vozi.ctx.rep.reproduciendo && window.__vozi.ctx.rep.tiempo > 0.3, null, { timeout: 600000 });
+  const wav = await page.evaluate(async () => {
+    const r = await window.__vozi.db.get('audioBlobs', window.__vozi.ctx.rep.tramo.id);
+    const b = new Uint8Array(await r.blob.arrayBuffer());
+    let s = ''; for (let i = 0; i < b.length; i += 32768) s += String.fromCharCode(...b.subarray(i, i + 32768));
+    return btoa(s);
+  });
+  fs.writeFileSync(OUT + '/tramo-mateo.wav', Buffer.from(wav, 'base64'));
+  ok('Audio real con voz masculina (Mateo) generado', fs.statSync(OUT + '/tramo-mateo.wav').size > 100000);
+  await page.click('#repPlay');
+  await irA('ajustes'); await page.click('label.voz[data-id="st-valeria"]'); await esperar(300);
+}
+
+// 5b) Preparación rápida con 2 procesos
+if (quiere('rapida')) {
+  for (const n of [1, 2]) {
+    await page.evaluate(async (n) => {
+      const { ctx, db } = window.__vozi;
+      ctx.ajustes.procesos = n; ctx.ajustes.primerTramoCorto = false; ctx.ajustes.tramoMin = 1; ctx.motor.terminar(); ctx.rep.descargar();
+      for (const a of await db.all('audio')) { await db.del('audio', a.id); await db.del('audioBlobs', a.id); }
+      if (!ctx.doc) {
+        await db.put('docs', { id: 'drap', title: 'Rápida', createdAt: Date.now(), updatedAt: Date.now(), source: { type: 'texto' }, pages: 0,
+          paragraphs: Array.from({ length: 6 }, (_, i) => ({ id: 'q' + i, text: 'La competencia regional se intensificó durante el segundo semestre, y las ventajas obtenidas podían desaparecer con rapidez si no se invertía en innovación. ¿Qué harían los directivos?', page: null, kind: 'p' })) });
+        ctx.doc = await db.get('docs', 'drap');
+      }
+      window.__vozi.L.escucharDesde(0);
+    }, n);
+    await page.waitForFunction(() => window.__vozi.ctx.rep.reproduciendo, null, { timeout: 600000 });
+    const r = await page.evaluate(() => ({ s: window.__vozi.ctx.rep.tramo.segSintesis, d: window.__vozi.ctx.rep.tramo.duracion }));
+    ok(`Preparación con ${n} proceso(s)`, r.d > 10, `${r.d.toFixed(1)} s de audio en ${r.s.toFixed(1)} s (factor ${(r.s / r.d).toFixed(2)})`);
+    await page.evaluate(() => window.__vozi.ctx.rep.pausar());
+  }
+}
+
+// 6) Importaciones
+async function importarArchivo(ruta) {
+  await irA('importar');
+  await elegir('.tarjeta-import:has-text("Archivo")', ruta);
+}
+if (quiere('pdf')) {
+  await importarArchivo(FIX + 'digital.pdf');
+  await page.waitForSelector('button:has-text("Importar")', { timeout: 30000 });
+  await page.click('.vista button.primario:has-text("Importar")');
+  await page.waitForSelector('.vista-revision', { timeout: 120000 });
+  const txt = await page.$$eval('.vista-revision textarea', (t) => t.map((x) => x.value).join('\n\n'));
+  fs.writeFileSync(OUT + '/pdf-digital.txt', txt);
+  ok('PDF digital: texto extraído', txt.includes('¿Qué factores explican el crecimiento'), `${txt.length} caracteres`);
+  ok('PDF digital: palabra cortada «compe-tencia» reconstruida', txt.includes('La competencia regional') && !txt.includes('compe-'));
+  ok('PDF digital: encabezado repetido y números de página omitidos', !txt.includes('Manual de casos') && !/^\s*[12]\s*$/m.test(txt));
+  ok('PDF digital: párrafos sin saltos de línea artificiales', txt.includes('mercado competitivo? Según'));
+  await page.click('button:has-text("Guardar en la biblioteca")');
+  await page.waitForSelector('.marca-pagina', { timeout: 15000 });
+  const pags = await page.$$eval('.marca-pagina', (e) => e.map((x) => x.dataset.page));
+  ok('PDF digital: relación texto-página conservada', pags.join(',') === '1,2', pags.join(','));
+}
+if (quiere('escaneado')) {
+  await importarArchivo(FIX + 'escaneado.pdf');
+  await page.waitForSelector('button:has-text("Importar")', { timeout: 30000 });
+  const t0 = Date.now();
+  await page.click('.vista button.primario:has-text("Importar")');
+  await page.waitForSelector('.vista-revision', { timeout: 600000 });
+  const txt = await page.$$eval('.vista-revision textarea', (t) => t.map((x) => x.value).join('\n\n'));
+  fs.writeFileSync(OUT + '/pdf-escaneado.txt', txt);
+  const aviso_ = await page.$eval('.vista-revision .aviso-ocr', (e) => e.textContent).catch(() => '');
+  ok('PDF escaneado: OCR real aplicado a páginas sin texto', /factores explican el crecimiento/i.test(txt) && /competencia regional/i.test(txt), `${Math.round((Date.now() - t0) / 1000)} s · ${aviso_}`);
+  await page.click('button:has-text("Guardar en la biblioteca")');
+  await page.waitForSelector('.texto-lectura', { timeout: 15000 });
+}
+if (quiere('imagen')) {
+  await irA('importar');
+  await elegir('.tarjeta-import:has-text("Imágenes")', FIX + 'foto.jpg');
+  await page.waitForSelector('.vista-revision', { timeout: 300000 });
+  const txt = await page.$$eval('.vista-revision textarea', (t) => t.map((x) => x.value).join('\n\n'));
+  fs.writeFileSync(OUT + '/foto.txt', txt);
+  ok('Imagen (foto inclinada con ruido): OCR real', /factores/i.test(txt) && /directora/i.test(txt), txt.slice(0, 90).replace(/\n/g, ' '));
+  await page.click('button:has-text("Descartar")'); await page.click('.dialogo .boton.peligro');
+}
+if (quiere('docx')) {
+  await importarArchivo(FIX + 'documento.docx');
+  await page.waitForSelector('.vista-revision', { timeout: 30000 });
+  const txt = await page.$$eval('.vista-revision textarea', (t) => t.map((x) => x.value).join('\n\n'));
+  ok('DOCX: texto y títulos importados', txt.includes('Capítulo 2. Caso práctico') && txt.includes('¿Qué factores'), `${txt.length} caracteres`);
+  await page.click('button:has-text("Descartar")'); await page.click('.dialogo .boton.peligro');
+}
+if (quiere('errores')) {
+  fs.writeFileSync('/tmp/danado.pdf', '%PDF-1.4\nesto no es un pdf valido');
+  await importarArchivo('/tmp/danado.pdf');
+  await esperar(2500);
+  const av = await textoAviso();
+  ok('PDF dañado: error claro, sin simular éxito', /dañado|válido/i.test(av), av);
+  fs.writeFileSync('/tmp/vacio.txt', '');
+  await importarArchivo('/tmp/vacio.txt'); await esperar(1000);
+  ok('Archivo vacío: error claro', /vacío/i.test(await textoAviso()), await textoAviso());
+}
+
+// 7) Sin conexión
+if (quiere('offline')) {
+  await page.evaluate(async () => {
+    const docs = await window.__vozi.db.all('docs');
+    if (!docs.some((d) => d.title === 'Prueba de lectura')) {
+      await window.__vozi.db.put('docs', { id: 'dprueba', title: 'Prueba de lectura', createdAt: Date.now(), updatedAt: Date.now(), source: { type: 'texto' }, pages: 0,
+        paragraphs: [{ id: 'p1', text: '¿Funciona sin conexión? Sí: la voz se genera en el dispositivo.', page: null, kind: 'p' }, { id: 'p2', text: 'El 12 % de los datos se procesa localmente.', page: null, kind: 'p' }] });
+    }
+  });
+  await context.setOffline(true);
+  await page.reload();
+  await page.waitForFunction(() => window.__voziListo, null, { timeout: 60000 });
+  ok('La app abre sin conexión', true);
+  await page.evaluate(async () => { for (const a of await window.__vozi.db.all('audio')) { await window.__vozi.db.del('audio', a.id); await window.__vozi.db.del('audioBlobs', a.id); } });
+  const docs = await page.evaluate(async () => (await window.__vozi.db.all('docs')).map((d) => d.title));
+  await page.evaluate(async () => { const d = (await window.__vozi.db.all('docs')).find((x) => x.title === 'Prueba de lectura'); window.__vozi.ctx.doc = null; });
+  await irA('biblioteca');
+  await page.click('.doc-abrir:has-text("Prueba de lectura")');
+  await page.waitForSelector('.texto-lectura .parrafo');
+  await page.evaluate(() => window.__vozi.L.escucharDesde(0));
+  await page.waitForFunction(() => window.__vozi.ctx.rep.reproduciendo && window.__vozi.ctx.rep.tiempo > 0.3, null, { timeout: 600000 }).then(
+    () => ok('Sin conexión: síntesis y lectura funcionan con recursos descargados', true, docs.join(', ')),
+    async () => ok('Sin conexión: síntesis y lectura funcionan con recursos descargados', false, await textoAviso()));
+  await page.click('#repPlay');
+  await irA('importar');
+  await elegir('.tarjeta-import:has-text("Imágenes")', FIX + 'foto.jpg');
+  await page.waitForSelector('.vista-revision', { timeout: 300000 }).then(
+    () => ok('Sin conexión: OCR funciona', true), () => ok('Sin conexión: OCR funciona', false));
+  await context.setOffline(false);
+}
+
+console.log('\nErrores de consola:', errores.length ? errores.join('\n') : 'ninguno');
+fs.writeFileSync(OUT + '/resultados.json', JSON.stringify({ resultados, errores }, null, 1));
+await browser.close();
