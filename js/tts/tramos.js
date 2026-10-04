@@ -6,7 +6,8 @@ import { normalizarEn } from './normalize-en.js';
 import { dividirOraciones, partirLarga } from './segmenter.js';
 import { db, uid } from '../db.js';
 
-export const PAUSAS = { parte: 0.12, oracion: 0.34, parrafo: 0.78, titulo: 0.95 };
+export const PAUSAS = { parte: 0.12, oracion: 0.3, parrafo: 0.75, titulo: 0.9 };
+const MAX_GRUPO = 220;
 
 // Hash corto (FNV-1a) para detectar cambios de texto
 export function hashTexto(s) {
@@ -27,19 +28,36 @@ export function planificarTramo(doc, inicio, minutos, cps, diccionario, { leerNo
     if (!p.text.trim()) continue;
     if (p.kind === 'pie' && !leerNotasPie) continue; // notas al pie: se muestran, la voz las omite
     const oraciones = dividirOraciones(p.text);
+    const lang = (idiomas && idiomas[i]) || 'es';
+    // Fluidez: las oraciones cortas consecutivas se sintetizan juntas (hasta ~220 caracteres),
+    // para que la voz enlace la entonación entre ellas como lo haría una persona.
+    const unidades = [];
+    let grupo = null;
+    const cerrarGrupo = () => { if (grupo) unidades.push(grupo); grupo = null; };
     oraciones.forEach((o, si) => {
       const original = p.text.slice(o.start, o.end);
-      const lang = (idiomas && idiomas[i]) || 'es';
       const dicho = lang === 'en' ? normalizarEn(original, { diccionario }) : normalizar(original, { diccionario });
-      const partes = partirLarga(dicho, 280);
-      partes.forEach((t, pi) => {
-        const ultimaParte = pi === partes.length - 1;
-        const ultimaOracion = si === oraciones.length - 1;
-        let pausa = PAUSAS.parte;
-        if (ultimaParte) pausa = ultimaOracion ? (p.kind === 'h' ? PAUSAS.titulo : PAUSAS.parrafo) : PAUSAS.oracion;
-        items.push({ id: `${p.id}|${si}|${pi}`, pid: p.id, pidx: i, s: si, text: t, pausa, lang });
-        est += t.length / cps + pausa;
-      });
+      if (!dicho.trim()) return;
+      if (dicho.length > MAX_GRUPO || p.kind === 'h') { // los títulos no se agrupan: conservan su pausa
+        cerrarGrupo();
+        const partes = partirLarga(dicho, 280);
+        partes.forEach((t, pi) => unidades.push({ text: t, oraciones: [{ s: si, n: t.length }], s: si, pi, ultimaParte: pi === partes.length - 1 }));
+        return;
+      }
+      if (grupo && grupo.text.length + 1 + dicho.length <= MAX_GRUPO) {
+        grupo.text += ' ' + dicho;
+        grupo.oraciones.push({ s: si, n: dicho.length + 1 });
+      } else {
+        cerrarGrupo();
+        grupo = { text: dicho, oraciones: [{ s: si, n: dicho.length }], s: si, pi: 0, ultimaParte: true };
+      }
+    });
+    cerrarGrupo();
+    unidades.forEach((u, ui) => {
+      const ultima = ui === unidades.length - 1;
+      const pausa = ultima ? (p.kind === 'h' ? PAUSAS.titulo : PAUSAS.parrafo) : (u.ultimaParte ? PAUSAS.oracion : PAUSAS.parte);
+      items.push({ id: `${p.id}|${u.s}|${u.pi}`, pid: p.id, pidx: i, s: u.s, oraciones: u.oraciones, text: u.text, pausa, lang });
+      est += u.text.length / cps + pausa;
     });
     parrafos.push(p.id);
     if (est >= objetivo) break;
@@ -80,7 +98,10 @@ export function ensamblar(piezas, sampleRate) {
     for (let k = 0; k < x.length; k++) out[off + k] = x[k] * g;
     const t0 = off / sampleRate;
     off += x.length;
-    tiempos.push({ id: p.id, pid: p.pid, s: p.s, t0, t1: off / sampleRate });
+    if (p.oraciones && p.oraciones.length > 1) {
+      const cortes = cortesOraciones(x, sampleRate, p.oraciones);
+      p.oraciones.forEach((o, k) => tiempos.push({ id: p.id + '#' + k, pid: p.pid, s: o.s, t0: t0 + cortes[k], t1: t0 + cortes[k + 1] }));
+    } else tiempos.push({ id: p.id, pid: p.pid, s: p.s, t0, t1: off / sampleRate });
     off += Math.round(p.pausa * sampleRate);
   });
   // Normalización de pico a -1 dBFS
@@ -88,6 +109,39 @@ export function ensamblar(piezas, sampleRate) {
   for (let i = 0; i < out.length; i++) { const a = Math.abs(out[i]); if (a > pico) pico = a; }
   if (pico > 0) { const g = 0.89 / pico; for (let i = 0; i < out.length; i++) out[i] *= g; }
   return { samples: out, tiempos, duracion: total / sampleRate };
+}
+
+// Ubica dónde termina cada oración dentro de un audio agrupado: parte de la proporción de
+// caracteres y busca el silencio más claro cercano. Devuelve [0, c1, ..., duración] en segundos.
+export function cortesOraciones(x, sr, oraciones) {
+  const dur = x.length / sr;
+  const hop = Math.round(sr * 0.01);
+  const energia = new Float32Array(Math.ceil(x.length / hop));
+  for (let f = 0; f < energia.length; f++) {
+    let e = 0; const a = f * hop, b = Math.min(x.length, a + hop);
+    for (let k = a; k < b; k++) e += x[k] * x[k];
+    energia[f] = Math.sqrt(e / Math.max(1, b - a));
+  }
+  const total = oraciones.reduce((s, o) => s + o.n, 0);
+  const cortes = [0];
+  let acum = 0;
+  for (let k = 0; k < oraciones.length - 1; k++) {
+    acum += oraciones[k].n;
+    const esperado = (acum / total) * dur;
+    const ventana = Math.max(0.6, dur * 0.12);
+    const f0 = Math.max(Math.round((cortes[k] + 0.2) * 100), Math.round((esperado - ventana) * 100));
+    const f1 = Math.min(energia.length - 1, Math.round((esperado + ventana) * 100));
+    // Buscar el tramo de 80 ms con menor energía (pausa entre oraciones)
+    let mejor = Math.round(esperado * 100), minimo = Infinity;
+    for (let f = f0; f + 8 <= f1; f++) {
+      let e = 0; for (let j = 0; j < 8; j++) e += energia[f + j];
+      const penal = Math.abs(f + 4 - esperado * 100) * 0.0004;
+      if (e + penal < minimo) { minimo = e + penal; mejor = f + 4; }
+    }
+    cortes.push(Math.min(dur, Math.max(cortes[k] + 0.1, mejor / 100)));
+  }
+  cortes.push(dur);
+  return cortes;
 }
 
 export function codificarWav(samples, sampleRate) {
@@ -121,7 +175,7 @@ export async function prepararTramo({ motor, doc, plan, voz, pack, ajustes, onPr
       speed: ajustes.velocidadVoz || 1.0, outRate, charsPorSegundo: ajustes.cps || 14 },
     (m) => {
       const it = plan.items[m.index];
-      piezas[m.index] = { id: it.id, pid: it.pid, s: it.s, pausa: it.pausa, samples: m.samples };
+      piezas[m.index] = { id: it.id, pid: it.pid, s: it.s, oraciones: it.oraciones, pausa: it.pausa, samples: m.samples };
       sr = m.sampleRate;
       const trans = (performance.now() - t0) / 1000;
       const restante = m.progress > 0.02 ? trans * (1 - m.progress) / m.progress : null;

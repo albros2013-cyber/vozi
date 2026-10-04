@@ -48,6 +48,13 @@ PDF de prueba con 2 notas por página (una de dos líneas) y llamadas voladas: l
 - Se puede fijar el idioma de un documento (Biblioteca → ⋯ → Idioma).
 - Con una voz ligera (Piper) elegida, los tramos con inglés se leen con las voces naturales, porque Piper solo habla español.
 
+## 2d. Fluidez, sesiones y encabezados (añadido)
+
+- Fluidez: las oraciones cortas consecutivas de un párrafo se sintetizan juntas (hasta 220 caracteres), para que la voz enlace la entonación; los títulos no se agrupan. El resaltado por oración se mantiene ubicando la pausa real dentro del audio (transcripción de cada segmento: cortes correctos). Recorte de silencios más suave (no corta finales de palabra) y pausas de 0,30 s entre grupos y 0,75 s entre párrafos.
+- Sesiones de usuario: cada persona tiene su propia base de datos local (biblioteca, notas, progreso, audios, ajustes); PIN opcional; las voces se comparten. Probado: PIN incorrecto rechazado, bibliotecas independientes, reapertura en la última sesión.
+- Encabezados y pies de página: se omiten números de página, líneas de margen repetidas y líneas de margen aisladas en letra pequeña o con número (encabezados que cambian por capítulo); los títulos más grandes que el cuerpo se conservan. Opción para desactivarlo al importar. En OCR se quitan las primeras/últimas líneas repetidas entre páginas.
+- Regresión completa: 50 de 50 pruebas superadas.
+
 ## 3. Pendiente de verificar en iPhone/iPad (no probado)
 
 - Que Safari reserve la memoria del motor (512 MB iniciales por proceso). En equipos con poca memoria podría fallar; la voz ligera usa la misma reserva. Corregirlo exige recompilar sherpa-onnx con menos memoria inicial.

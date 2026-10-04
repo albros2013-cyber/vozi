@@ -99,8 +99,9 @@ async function init({ engineBase, cacheName, voice }) {
 
 // Recorta silencio inicial y final (umbral relativo) dejando un margen pequeño
 function recortar(samples, sr) {
-  const thr = 0.008;
-  const margen = Math.round(sr * 0.03);
+  // Umbral bajo y margen amplio: no cortar finales suaves (s, f, respiración) que dan naturalidad
+  const thr = 0.004;
+  const margen = Math.round(sr * 0.08);
   let a = 0, b = samples.length - 1;
   while (a < b && Math.abs(samples[a]) < thr) a++;
   while (b > a && Math.abs(samples[b]) < thr) b--;

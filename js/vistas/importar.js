@@ -97,19 +97,21 @@ async function flujoPdf(main, file) {
   const desde = h('input', { class: 'campo corto', type: 'number', min: 1, max: abierto.numPages, value: 1, inputmode: 'numeric', 'aria-label': 'Desde la página' });
   const hasta = h('input', { class: 'campo corto', type: 'number', min: 1, max: abierto.numPages, value: abierto.numPages, inputmode: 'numeric', 'aria-label': 'Hasta la página' });
   const forzar = h('input', { type: 'checkbox', disabled: !ocrOk });
+  const omitir = h('input', { type: 'checkbox', checked: true });
   const opciones = await new Promise((resolve) => {
     main.innerHTML = '';
     main.append(h('section', { class: 'vista' },
       h('h2', {}, file.name),
       h('p', {}, `${abierto.numPages} páginas.`),
       h('div', { class: 'fila-campos' }, h('label', {}, 'Desde la página ', desde), h('label', {}, ' hasta ', hasta)),
+      h('label', { class: 'casilla' }, omitir, ' Omitir encabezados, pies de página y números de página'),
       h('label', { class: 'casilla' }, forzar, ' Forzar reconocimiento de texto (OCR) en todas las páginas del rango'),
       h('p', { class: 'nota-suave' }, ocrOk
         ? 'Las páginas escaneadas o sin texto seleccionable se reconocen automáticamente con OCR. Fuerza el OCR si el texto extraído sale con caracteres extraños.'
         : 'El OCR no está descargado: las páginas escaneadas quedarán vacías. Descárgalo en Ajustes → Recursos sin conexión.'),
       h('div', { class: 'fila-botones' },
         h('button', { class: 'boton', onclick: () => resolve(null) }, 'Cancelar'),
-        h('button', { class: 'boton primario', onclick: () => resolve({ desde: +desde.value, hasta: +hasta.value, forzarOcr: forzar.checked }) }, 'Importar'))));
+        h('button', { class: 'boton primario', onclick: () => resolve({ desde: +desde.value, hasta: +hasta.value, forzarOcr: forzar.checked, omitirEncabezados: omitir.checked }) }, 'Importar'))));
   });
   if (!opciones) { abierto.pdf.destroy(); ir('importar', { revisar: false }); return; }
   if (!(opciones.desde >= 1 && opciones.hasta <= abierto.numPages && opciones.desde <= opciones.hasta)) {
@@ -136,7 +138,7 @@ async function flujoPdf(main, file) {
   revisar(main, {
     titulo: abierto.titulo && abierto.titulo.length > 3 ? abierto.titulo : file.name.replace(/\.pdf$/i, ''),
     paragraphs: r.paragraphs, paginas: abierto.numPages, rango: [r.desde, r.hasta],
-    paginasOcr: r.paginasOcr, paginasSinTexto: r.paginasSinTexto, notasAlPie: r.notasAlPie,
+    paginasOcr: r.paginasOcr, paginasSinTexto: r.paginasSinTexto, notasAlPie: r.notasAlPie, encabezados: r.encabezadosOmitidos,
     source: { type: 'pdf', name: file.name, size: file.size },
   });
 }
@@ -221,6 +223,7 @@ function vistaRevision(main) {
     const mixto = d.paragraphs.some((p) => detectarIdioma(p.text) === (det === 'es' ? 'en' : 'es'));
     cont.append(h('p', { class: 'nota-suave' }, `Idioma detectado: ${det === 'en' ? 'inglés' : 'español'}${mixto ? ' (con partes en ' + (det === 'en' ? 'español' : 'inglés') + ': cada párrafo se leerá con la voz de su idioma)' : ''}.`));
   }
+  if (d.encabezados) cont.append(h('p', { class: 'nota-suave' }, `Se omitieron ${d.encabezados} línea(s) de encabezado, pie de página o número de página.`));
   if (d.notasAlPie) {
     cont.append(h('div', { class: 'aviso-ocr ok' }, `Se detectaron ${d.notasAlPie} nota(s) al pie. Se conservan en el texto y la voz las omite (puedes cambiarlo en Ajustes → Lectura, o tocando el párrafo).`));
   }

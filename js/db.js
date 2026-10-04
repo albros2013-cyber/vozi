@@ -1,5 +1,8 @@
 // VOZI — Almacenamiento local (IndexedDB). Todo queda en el dispositivo.
-const DB_NAME = 'vozi';
+let dbPromise = null;
+let DB_NAME = 'vozi';
+// Cada sesión de usuario usa su propia base de datos (ver perfiles.js)
+export function usarBase(nombre) { DB_NAME = nombre; dbPromise = null; }
 const DB_VERSION = 1;
 // Las migraciones solo AÑADEN almacenes/índices: nunca se borran lecturas, notas ni marcadores.
 const STORES = {
@@ -14,7 +17,6 @@ const STORES = {
   resources: { keyPath: 'key' },
 };
 
-let dbPromise = null;
 
 export function abrir() {
   if (dbPromise) return dbPromise;

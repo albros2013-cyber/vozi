@@ -3,7 +3,8 @@
 import { ctx, guardarAjustes } from '../estado.js';
 import { db, estimarAlmacenamiento, pedirPersistencia } from '../db.js';
 import { h, aviso, confirmar, elegirArchivo, compartirODescargar, dialogo } from '../ui.js';
-import { ir, aplicarTema, actualizarReproductor, VERSION } from '../app.js';
+import { ir, aplicarTema, actualizarReproductor, VERSION, dialogoNuevoPerfil, cambiarDePerfil, pedirPin } from '../app.js';
+import * as P from '../perfiles.js';
 import { VOCES_ES, VOCES_EN, vozPorId } from '../voices.js';
 import { cargarManifiesto, estadoPaquete, descargarPaquete, borrarPaquete, limpiarObsoletos, mb } from '../resources.js';
 import { normalizar } from '../tts/normalize-es.js';
@@ -20,6 +21,7 @@ export async function vistaAjustes(main, opciones = {}) {
   try { man = await cargarManifiesto(); } catch (e) { cont.append(h('div', { class: 'aviso-ocr falta' }, e.message)); }
   const secciones = [
     ['voz', 'Voz', () => seccionVoz(man)],
+    ['sesiones', 'Sesiones de usuario', () => seccionSesiones()],
     ['lectura', 'Lectura', () => seccionLectura()],
     ['recursos', 'Recursos sin conexión', () => seccionRecursos(man)],
     ['apariencia', 'Apariencia', () => seccionApariencia()],
@@ -85,6 +87,57 @@ function tocarMuestra(v, btn) {
   btn.textContent = '■ Detener';
   a.addEventListener('ended', () => { btn.textContent = '▶ Muestra'; muestra = null; });
   a.play().catch(() => { btn.textContent = '▶ Muestra'; aviso('No se pudo reproducir la muestra.'); });
+}
+
+// ---------- Sesiones de usuario ----------
+async function seccionSesiones() {
+  const cont = h('div', {});
+  const pintar = async () => {
+    cont.innerHTML = '';
+    const perfiles = await P.listarPerfiles();
+    const activo = ctx.perfil && ctx.perfil.id;
+    cont.append(h('p', { class: 'nota-suave' }, 'Cada persona tiene su propia biblioteca, notas, citas, tarjetas, marcadores, progreso, audios y ajustes. Las voces descargadas se comparten, así que no ocupan espacio extra. Todo se guarda solo en este dispositivo.'));
+    const ul = h('ul', { class: 'lista-recursos' });
+    for (const p of perfiles) {
+      const esActivo = p.id === activo;
+      ul.append(h('li', { class: 'recurso' },
+        h('span', { class: 'avatar', style: { background: p.color } }, P.iniciales(p.nombre)),
+        h('div', { class: 'recurso-info' }, h('strong', {}, p.nombre + (esActivo ? ' (sesión actual)' : '')), h('span', { class: 'nota-suave' }, p.pinHash ? '🔒 Con PIN' : 'Sin PIN')),
+        h('div', { class: 'recurso-acciones' },
+          h('button', { class: 'boton pequeno', onclick: async () => {
+            const v = await dialogo({ titulo: p.nombre, contenido: h('p', { class: 'nota-suave' }, 'Elige una acción.'), botones: [
+              { texto: 'Renombrar', valor: 'nombre' }, { texto: p.pinHash ? 'Cambiar o quitar PIN' : 'Poner PIN', valor: 'pin' },
+              ...(esActivo ? [] : [{ texto: 'Eliminar', valor: 'eliminar', clase: 'peligro' }]), { texto: 'Cerrar', valor: null }] });
+            if (v === 'nombre') {
+              const { pedirTexto } = await import('../ui.js');
+              const n = await pedirTexto('Nuevo nombre', { valor: p.nombre });
+              if (n && n.trim()) { await P.actualizarPerfil(p.id, { nombre: n }); if (esActivo) ctx.perfil.nombre = n.trim(); pintar(); }
+            } else if (v === 'pin') {
+              if (p.pinHash) { const actual = await pedirPin('PIN actual'); if (actual == null) return; if (!(await P.verificarPin(p, actual))) { aviso('PIN incorrecto.', { tipo: 'error' }); return; } }
+              const nuevo = await pedirPin('Nuevo PIN (déjalo vacío para quitarlo)');
+              if (nuevo == null) return;
+              if (nuevo && !/^\d{4,8}$/.test(nuevo)) { aviso('El PIN debe tener entre 4 y 8 números.', { tipo: 'error' }); return; }
+              await P.actualizarPerfil(p.id, { pin: nuevo || null });
+              aviso(nuevo ? 'PIN guardado.' : 'PIN eliminado.'); pintar();
+            } else if (v === 'eliminar') {
+              if (p.pinHash) { const pin = await pedirPin(`PIN de ${p.nombre}`); if (pin == null) return; if (!(await P.verificarPin(p, pin))) { aviso('PIN incorrecto.', { tipo: 'error' }); return; } }
+              if (await confirmar(`Se borrarán la biblioteca, notas, progreso y audios de ${p.nombre} en este dispositivo. No se puede deshacer.`, { si: 'Eliminar sesión', peligro: true })) {
+                await P.eliminarPerfil(p.id); aviso('Sesión eliminada.'); pintar();
+              }
+            }
+          } }, 'Opciones'),
+          esActivo ? null : h('button', { class: 'boton pequeno primario', onclick: () => cambiarDePerfil() }, 'Cambiar'))));
+    }
+    cont.append(ul);
+    const preguntar = h('input', { type: 'checkbox', role: 'switch', checked: await P.preguntarAlIniciar() });
+    preguntar.addEventListener('change', () => P.fijarPreguntarAlIniciar(preguntar.checked));
+    cont.append(
+      h('div', { class: 'fila-botones' }, h('button', { class: 'boton', onclick: async () => { if (await dialogoNuevoPerfil()) pintar(); } }, '+ Añadir persona')),
+      h('label', { class: 'interruptor' }, h('span', {}, 'Preguntar quién va a estudiar al abrir VOZI'), preguntar),
+      h('p', { class: 'nota-suave' }, 'Las sesiones con PIN siempre lo piden al abrir la app. El PIN evita el acceso casual entre personas que comparten el dispositivo; no cifra los datos. Las copias de seguridad se hacen por sesión.'));
+  };
+  await pintar();
+  return cont;
 }
 
 // ---------- Lectura ----------

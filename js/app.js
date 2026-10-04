@@ -1,6 +1,7 @@
 // VOZI — Arranque, navegación, tema y reproductor.
 import { ctx, cargarAjustes, guardarAjustes } from './estado.js';
-import { abrir, db, pedirPersistencia } from './db.js';
+import { abrir, db, pedirPersistencia, usarBase } from './db.js';
+import * as P from './perfiles.js';
 import { MotorVoz } from './tts/engine.js';
 import { Reproductor } from './player.js';
 import * as L from './lectura.js';
@@ -247,13 +248,102 @@ async function registrarSW() {
 }
 
 // ---------- Inicio ----------
+// ---------- Sesiones de usuario ----------
+async function elegirPerfil() {
+  const lista = await P.listarPerfiles();
+  const activo = await P.perfilActivoId();
+  const actual = lista.find((p) => p.id === activo);
+  const forzar = sessionStorage.getItem('vozi-elegir') === '1';
+  sessionStorage.removeItem('vozi-elegir');
+  if (actual && !forzar && !actual.pinHash && !(lista.length > 1 && await P.preguntarAlIniciar())) return actual;
+  if (lista.length === 1 && !lista[0].pinHash && !forzar) { await P.fijarPerfilActivo(lista[0].id); return lista[0]; }
+  // Pantalla «¿Quién va a estudiar?»
+  document.body.classList.add('eligiendo-perfil');
+  const main = document.getElementById('principal');
+  return new Promise((resolve) => {
+    const pintar = async () => {
+      const perfiles = await P.listarPerfiles();
+      main.innerHTML = '';
+      main.append(h('section', { class: 'vista selector-perfiles' },
+        h('h1', {}, '¿Quién va a estudiar?'),
+        h('p', { class: 'nota-suave' }, 'Cada persona tiene su propia biblioteca, notas, progreso y ajustes en este dispositivo.'),
+        h('div', { class: 'rejilla-perfiles' },
+          perfiles.map((p) => h('button', { class: 'perfil', onclick: async () => {
+            if (p.pinHash) {
+              const pin = await pedirPin(`PIN de ${p.nombre}`);
+              if (pin == null) return;
+              if (!(await P.verificarPin(p, pin))) { aviso('PIN incorrecto.', { tipo: 'error' }); return; }
+            }
+            await P.fijarPerfilActivo(p.id);
+            document.body.classList.remove('eligiendo-perfil');
+            resolve(p);
+          } }, h('span', { class: 'avatar grande', style: { background: p.color } }, P.iniciales(p.nombre)), h('span', {}, p.nombre), p.pinHash ? h('span', { class: 'nota-suave' }, '🔒 con PIN') : null)),
+          h('button', { class: 'perfil nuevo', onclick: async () => { if (await dialogoNuevoPerfil()) pintar(); } },
+            h('span', { class: 'avatar grande vacio-av' }, '+'), h('span', {}, 'Añadir persona')))));
+    };
+    pintar();
+  });
+}
+
+export async function pedirPin(titulo) {
+  const campo = h('input', { class: 'campo pin', type: 'password', inputmode: 'numeric', autocomplete: 'off', maxlength: 8, placeholder: '••••' });
+  return dialogo({ titulo, contenido: campo, botones: [{ texto: 'Cancelar', valor: null }, { texto: 'Entrar', valor: () => campo.value, clase: 'primario' }] });
+}
+
+export async function dialogoNuevoPerfil() {
+  const nombre = h('input', { class: 'campo', placeholder: 'Nombre', maxlength: 40 });
+  const pin = h('input', { class: 'campo pin', type: 'password', inputmode: 'numeric', autocomplete: 'new-password', maxlength: 8, placeholder: 'PIN opcional (4 a 8 números)' });
+  const r = await dialogo({
+    titulo: 'Nueva persona',
+    contenido: h('div', {}, h('label', { class: 'etiqueta-campo' }, h('span', {}, 'Nombre'), nombre), h('label', { class: 'etiqueta-campo' }, h('span', {}, 'PIN (opcional)'), pin),
+      h('p', { class: 'nota-suave' }, 'El PIN evita que otra persona abra tu sesión por error en este dispositivo. No cifra los datos.')),
+    botones: [{ texto: 'Cancelar', valor: null }, { texto: 'Crear', valor: () => ({ n: nombre.value.trim(), p: pin.value.trim() }), clase: 'primario' }],
+  });
+  if (!r || !r.n) return null;
+  if (r.p && !/^\d{4,8}$/.test(r.p)) { aviso('El PIN debe tener entre 4 y 8 números.', { tipo: 'error' }); return null; }
+  const p = await P.crearPerfil(r.n, r.p || null);
+  aviso(`Se creó la sesión de ${p.nombre}.`);
+  return p;
+}
+
+export function cambiarDePerfil() {
+  L.guardarPosicion();
+  sessionStorage.setItem('vozi-elegir', '1');
+  location.reload();
+}
+
+function pintarAvatar(perfil, total) {
+  const b = document.getElementById('perfilBtn');
+  b.hidden = false;
+  b.textContent = P.iniciales(perfil.nombre);
+  b.style.background = perfil.color;
+  b.setAttribute('aria-label', `Sesión de ${perfil.nombre}. Toca para cambiar de persona`);
+  b.title = perfil.nombre;
+  b.onclick = async () => {
+    const v = await dialogo({
+      titulo: `Sesión de ${perfil.nombre}`,
+      contenido: h('p', { class: 'nota-suave' }, total > 1 ? 'Cambia de persona para ver su biblioteca y sus notas.' : 'Puedes crear sesiones para otras personas que usen este dispositivo.'),
+      botones: [{ texto: 'Gestionar sesiones', valor: 'gestionar' }, { texto: 'Cambiar de persona', valor: 'cambiar', clase: 'primario' }, { texto: 'Cerrar', valor: null }],
+    });
+    if (v === 'cambiar') cambiarDePerfil();
+    if (v === 'gestionar') ir('ajustes', { seccion: 'sesiones' });
+  };
+}
+
 async function iniciar() {
-  try { await abrir(); } catch (e) {
+  let perfil;
+  try {
+    perfil = await elegirPerfil();
+    usarBase(P.nombreBase(perfil.id));
+    ctx.perfil = perfil;
+    await abrir();
+  } catch (e) {
     document.getElementById('principal').append(h('div', { class: 'vacio' }, h('p', {}, 'No se pudo abrir el almacenamiento local: ' + e.message + ' Si usas navegación privada, ábrela en una ventana normal.')));
     return;
   }
   await cargarAjustes();
   aplicarTema();
+  pintarAvatar(perfil, (await P.listarPerfiles()).length);
   matchMedia('(prefers-color-scheme: dark)').addEventListener('change', aplicarTema);
   ctx.motor = new MotorVoz();
   ctx.rep = new Reproductor();

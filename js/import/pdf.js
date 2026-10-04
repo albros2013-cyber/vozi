@@ -138,7 +138,7 @@ function calidadTexto(t) {
 }
 
 // Importa un rango de páginas. onProgreso({pagina, total, fase, fraccion})
-export async function importarPdf(abierto, { desde = 1, hasta, forzarOcr = false, ocrListo = false, onProgreso, signal }) {
+export async function importarPdf(abierto, { desde = 1, hasta, forzarOcr = false, ocrListo = false, omitirEncabezados = true, onProgreso, signal }) {
   const { pdf } = abierto;
   hasta = Math.min(hasta || pdf.numPages, pdf.numPages);
   if (desde < 1 || desde > hasta) throw new Error('El rango de páginas no es válido.');
@@ -153,20 +153,36 @@ export async function importarPdf(abierto, { desde = 1, hasta, forzarOcr = false
     const texto = lineas.map((l) => l.text).join(' ');
     paginas.push({ n, page, lineas, ancho, alto, calidad: calidadTexto(texto) });
   }
-  // 2) Quitar encabezados/pies repetidos y números de página
-  const conteo = new Map();
-  for (const p of paginas) {
-    const bordes = p.lineas.filter((l) => l.y > p.alto * 0.92 || l.y < p.alto * 0.08);
-    for (const l of new Set(bordes.map((l) => claveRepeticion(l.text)))) conteo.set(l, (conteo.get(l) || 0) + 1);
-  }
-  const umbral = Math.max(2, Math.ceil(paginas.length * 0.4));
-  for (const p of paginas) {
-    p.lineas = p.lineas.filter((l) => {
-      const borde = l.y > p.alto * 0.92 || l.y < p.alto * 0.08;
-      if (!borde) return true;
-      if (NUM_PAGINA.test(l.text)) return false;
-      return !(paginas.length >= 2 && conteo.get(claveRepeticion(l.text)) >= umbral && l.text.length < 120);
-    });
+  // 2) Quitar encabezados, pies de página y números de página
+  //    - números de página sueltos («12», «Página 3 de 10», «— 4 —»)
+  //    - líneas de margen repetidas en 2 o más páginas (los números se ignoran al comparar)
+  //    - líneas de margen aisladas del cuerpo y en letra más pequeña (encabezados que cambian por capítulo)
+  let omitidas = 0;
+  if (omitirEncabezados) {
+    const hMed = mediana(paginas.flatMap((p) => p.lineas.map((l) => l.hmax))) || 10;
+    const esMargen = (p, l) => l.y > p.alto * 0.88 || l.y < p.alto * 0.1;
+    const conteo = new Map();
+    for (const p of paginas) {
+      const claves = new Set(p.lineas.filter((l) => esMargen(p, l)).map((l) => claveRepeticion(l.text)));
+      for (const k of claves) conteo.set(k, (conteo.get(k) || 0) + 1);
+    }
+    for (const p of paginas) {
+      const antes = p.lineas.length;
+      p.lineas = p.lineas.filter((l, i) => {
+        if (!esMargen(p, l) || l.text.length > 120) return true;
+        if (NUM_PAGINA.test(l.text)) return false;
+        if (l.hmax > hMed * 1.05) return true; // letra más grande que el cuerpo: es un título, se conserva
+        const arriba = l.y > p.alto * 0.88;
+        const vecina = arriba ? p.lineas[i + 1] : p.lineas[i - 1];
+        const separacion = vecina ? Math.abs(l.y - vecina.y) : Infinity;
+        const aislada = separacion > hMed * 2.0; // separada del cuerpo por un espacio mayor al interlineado
+        const repetida = paginas.length >= 2 && conteo.get(claveRepeticion(l.text)) >= 2;
+        const pequena = l.hmax <= hMed * 0.92;
+        const conNumero = /(^\d{1,4}\s*[|·•–—-]?\s+\S)|(\S\s+[|·•–—-]?\s*\d{1,4}$)/.test(l.text);
+        return !(aislada && (repetida || pequena || conNumero));
+      });
+      omitidas += antes - p.lineas.length;
+    }
   }
   // 2b) Notas al pie (solo texto digital)
   const hCuerpo = mediana(paginas.flatMap((p) => p.lineas.map((l) => l.hmax)));
@@ -202,11 +218,18 @@ export async function importarPdf(abierto, { desde = 1, hasta, forzarOcr = false
       i++;
     }
   }
+  // En páginas reconocidas con OCR: primeras y últimas líneas repetidas entre páginas
+  const margenesOcr = new Map();
+  for (const p of paginas.filter((x) => x.ocr)) {
+    const ls = p.ocr.texto.split('\n').map((x) => x.trim()).filter(Boolean);
+    for (const l of new Set([...ls.slice(0, 2), ...ls.slice(-2)].map(claveRepeticion))) margenesOcr.set(l, (margenesOcr.get(l) || 0) + 1);
+  }
+
   // 4) Construir párrafos con su página
   const paragraphs = [];
   for (const p of paginas) {
     let pars;
-    if (p.ocr) pars = reconstruirParrafos(p.ocr.texto).map((t) => ({ text: t, kind: 'p', ocr: true }));
+    if (p.ocr) pars = reconstruirParrafos(omitirEncabezados ? limpiarMargenesOcr(p.ocr.texto, margenesOcr) : p.ocr.texto).map((t) => ({ text: t, kind: 'p', ocr: true }));
     else {
       pars = parrafosDeLineas(p.lineas.filter((l) => !l.pie), p.ancho);
       // Cada nota al pie empieza en una línea con su llamada
@@ -231,7 +254,19 @@ export async function importarPdf(abierto, { desde = 1, hasta, forzarOcr = false
   }
   const ocrConf = paginas.filter((p) => p.ocr).map((p) => ({ n: p.n, confianza: p.ocr.confianza }));
   for (const p of paginas) p.page.cleanup();
-  return { paragraphs, paginasOcr: ocrConf, paginasSinTexto: sinOcr, desde, hasta, notasAlPie: paragraphs.filter((x) => x.kind === 'pie').length };
+  return { paragraphs, paginasOcr: ocrConf, paginasSinTexto: sinOcr, desde, hasta, encabezadosOmitidos: omitidas, notasAlPie: paragraphs.filter((x) => x.kind === 'pie').length };
+}
+
+function limpiarMargenesOcr(texto, repetidas) {
+  const ls = texto.split('\n');
+  const idx = ls.map((l, i) => (l.trim() ? i : -1)).filter((i) => i >= 0);
+  const extremos = new Set([...idx.slice(0, 2), ...idx.slice(-2)]);
+  return ls.filter((l, i) => {
+    if (!extremos.has(i)) return true;
+    const t = l.trim();
+    if (NUM_PAGINA.test(t)) return false;
+    return !(t.length < 100 && (repetidas.get(claveRepeticion(t)) || 0) >= 2);
+  }).join('\n');
 }
 
 function abortado() { const e = new Error('Importación cancelada'); e.name = 'AbortError'; return e; }

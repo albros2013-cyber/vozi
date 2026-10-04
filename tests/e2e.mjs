@@ -228,6 +228,39 @@ if (quiere('rapida')) {
   }
 }
 
+// 5c) Sesiones de usuario independientes
+if (quiere('sesiones')) {
+  await page.evaluate(async () => { await window.__vozi.db.put('docs', { id: 'dyo', title: 'Documento de Yo', createdAt: Date.now(), updatedAt: Date.now(), source: { type: 'texto' }, pages: 0, paragraphs: [{ id: 'y1', text: 'Hola.', page: null, kind: 'p' }] }); });
+  await irA('ajustes');
+  await page.click('#sec-sesiones summary');
+  await page.click('#sec-sesiones button:has-text("Añadir persona")');
+  await page.fill('.dialogo input:not(.pin)', 'Ana');
+  await page.fill('.dialogo input.pin', '1234');
+  await page.click('.dialogo .boton.primario');
+  await esperar(600);
+  await page.click('#sec-sesiones button:has-text("Cambiar")');
+  await page.waitForSelector('.selector-perfiles', { timeout: 20000 });
+  await page.click('.perfil:has-text("Ana")');
+  await page.fill('.dialogo input.pin', '9999'); await page.click('.dialogo .boton.primario'); await esperar(500);
+  ok('PIN incorrecto rechazado', /incorrecto/i.test(await textoAviso()) && await page.$('.selector-perfiles'));
+  await page.click('.perfil:has-text("Ana")');
+  await page.fill('.dialogo input.pin', '1234'); await page.click('.dialogo .boton.primario');
+  await page.waitForFunction(() => window.__voziListo, null, { timeout: 30000 });
+  const docsAna = await page.evaluate(async () => (await window.__vozi.db.all('docs')).map((d) => d.title));
+  ok('La sesión nueva empieza con su propia biblioteca vacía', docsAna.length === 0, JSON.stringify(docsAna));
+  await page.evaluate(async () => { await window.__vozi.db.put('docs', { id: 'dana', title: 'Documento de Ana', createdAt: Date.now(), updatedAt: Date.now(), source: { type: 'texto' }, pages: 0, paragraphs: [{ id: 'a1', text: 'Hola Ana.', page: null, kind: 'p' }] }); });
+  await page.click('#perfilBtn'); await page.click('.dialogo .boton.primario:has-text("Cambiar de persona")');
+  await page.waitForSelector('.selector-perfiles', { timeout: 20000 });
+  await page.click('.perfil:has-text("Yo")');
+  await page.waitForFunction(() => window.__voziListo, null, { timeout: 30000 });
+  const docsYo = await page.evaluate(async () => (await window.__vozi.db.all('docs')).map((d) => d.title));
+  ok('Cada sesión ve solo su información', docsYo.includes('Documento de Yo') && !docsYo.includes('Documento de Ana'), JSON.stringify(docsYo));
+  await page.reload(); await page.waitForFunction(() => window.__voziListo, null, { timeout: 30000 });
+  ok('Al reabrir sigue en la última sesión sin PIN', await page.evaluate(() => window.__vozi.ctx.perfil.nombre) === 'Yo');
+  const voces = await page.evaluate(async () => (await (await caches.open('vozi-res-v1')).keys()).length);
+  ok('Las voces descargadas se comparten entre sesiones', voces > 10, `${voces} archivos`);
+}
+
 // 6) Importaciones
 async function importarArchivo(ruta) {
   await irA('importar');
@@ -248,6 +281,19 @@ if (quiere('pdf')) {
   await page.waitForSelector('.marca-pagina', { timeout: 15000 });
   const pags = await page.$$eval('.marca-pagina', (e) => e.map((x) => x.dataset.page));
   ok('PDF digital: relación texto-página conservada', pags.join(',') === '1,2', pags.join(','));
+}
+if (quiere('encabezados')) {
+  await importarArchivo(FIX + 'encabezados.pdf');
+  await page.waitForSelector('button:has-text("Importar")', { timeout: 30000 });
+  await page.click('.vista button.primario:has-text("Importar")');
+  await page.waitForSelector('.vista-revision', { timeout: 60000 });
+  const txt = await page.$$eval('.vista-revision textarea', (t) => t.map((x) => x.value).join('\n\n'));
+  fs.writeFileSync(OUT + '/encabezados.txt', txt);
+  ok('Encabezados que cambian por capítulo omitidos', !/Estrategia|Finanzas|Personas|Manual de gestión/.test(txt), txt.slice(0, 100).replace(/\n/g, ' / '));
+  ok('Pies de página omitidos', !/Universidad de Ejemplo/.test(txt));
+  ok('Títulos del cuerpo conservados («Capítulo 2»)', /Capítulo 1/.test(txt) && /Capítulo 2/.test(txt) && /Capítulo 3/.test(txt));
+  ok('Texto principal completo', (txt.match(/Este es el texto principal/g) || []).length === 4);
+  await page.click('button:has-text("Descartar")'); await page.click('.dialogo .boton.peligro');
 }
 if (quiere('notas')) {
   await importarArchivo(FIX + 'notas.pdf');
@@ -290,8 +336,8 @@ if (quiere('ingles')) {
     return planificarTramo(d, 0, 10, 13.5, [], { idiomas: idiomasDeParrafos(d) }).items.map((i) => i.lang + ': ' + i.text);
   });
   fs.writeFileSync(OUT + '/plan-bilingue.json', JSON.stringify(plan, null, 1));
-  const langs = plan.map((x) => x.slice(0, 2)).join(',');
-  ok('Idioma detectado por párrafo (es/en)', langs === 'es,en,en,en,en,es', langs);
+  const langs = await page.evaluate(async () => { const { idiomasDeParrafos } = await import('./js/tts/idioma.js'); return idiomasDeParrafos(window.__vozi.ctx.doc).join(','); });
+  ok('Idioma detectado por párrafo (es/en)', langs === 'es,en,en,en,es', langs);
   ok('Inglés normalizado en inglés', plan.some((x) => x.includes('twenty twenty-five') && x.includes('thirty-two percent') && x.includes('one million five hundred thousand dollars') && x.includes('Doctor Smith')));
   await page.evaluate(() => { window.__vozi.L.escucharDesde(0); });
   await page.waitForFunction(() => window.__vozi.ctx.rep.reproduciendo, null, { timeout: 600000 });
