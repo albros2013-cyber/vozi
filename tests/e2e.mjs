@@ -211,7 +211,7 @@ if (quiere('masculina')) {
 
 // 5b) Preparación rápida con 2 procesos
 if (quiere('rapida')) {
-  for (const n of [1, 2]) {
+  for (const n of [1, 2, 3]) {
     await page.evaluate(async (n) => {
       const { ctx, db } = window.__vozi;
       ctx.ajustes.paralelo = n; ctx.ajustes.primerTramoCorto = false; ctx.ajustes.tramoMin = 1; ctx.motor.terminar(); ctx.rep.descargar();

@@ -1,6 +1,6 @@
 // VOZI — Ajustes: voces, lectura, apariencia, recursos sin conexión, almacenamiento,
 // pronunciación, copia de seguridad y créditos.
-import { ctx, guardarAjustes } from '../estado.js';
+import { ctx, guardarAjustes, PASOS_CALIDAD } from '../estado.js';
 import { db, estimarAlmacenamiento, pedirPersistencia } from '../db.js';
 import { h, aviso, confirmar, elegirArchivo, compartirODescargar, dialogo } from '../ui.js';
 import { ir, aplicarTema, actualizarReproductor, VERSION, dialogoNuevoPerfil, cambiarDePerfil, pedirPin, conectarCuenta, cerrarSesionCuenta } from '../app.js';
@@ -52,6 +52,9 @@ async function seccionVoz(man) {
   cont.append(h('h3', {}, 'Voz en inglés'),
     h('p', { class: 'nota-suave' }, 'VOZI reconoce automáticamente si cada párrafo está en español o en inglés y usa la voz correspondiente. Las voces en inglés usan el mismo modelo natural: no requieren otra descarga. Puedes fijar el idioma de un documento en Biblioteca → ⋯ → Idioma.'));
   cont.append(await listaVoces(man, VOCES_EN, 'vozIdEn', 'Voz en inglés'));
+  cont.append(h('h3', {}, 'Calidad de las voces naturales'),
+    h('p', { class: 'nota-suave' }, '«Rápida» prepara el audio casi el doble de rápido que «Natural» y en las pruebas se entiende igual de bien; «Natural» suena un poco más pulida. El audio ya preparado se conserva; la nueva calidad se aplica a lo que falta.'),
+    opcionesCalidad());
   cont.append(h('p', { class: 'nota-suave' }, 'Las muestras se generaron con los mismos modelos que usa la app. La calidad final depende del texto. Ninguna voz es humana.'));
   return cont;
 }
@@ -184,20 +187,33 @@ function seccionLectura() {
     interruptor('Leer en voz alta las notas al pie', 'leerNotasPie', () => ctx.rep.descargar()),
     h('p', { class: 'nota-suave' }, 'En los PDF, VOZI detecta las notas al pie (letra pequeña al final de la página) y las llamadas de nota (números volados). Siempre se muestran en el texto; por defecto la voz las omite. Encabezados, pies de página repetidos y números de página se quitan al importar.'),
     h('h3', {}, 'Velocidad de preparación'),
-    h('p', { class: 'nota-suave' }, 'Con «Rápida», VOZI usa dos procesos a la vez y prepara el audio casi el doble de rápido (cada proceso ocupa unos 250 MB). «Automática» usa dos procesos y, si la app llegara a cerrarse por falta de memoria, vuelve sola a uno.'),
+    h('p', { class: 'nota-suave' }, `Cada proceso prepara audio en paralelo y ocupa unos 250 MB. «Automática» usa 3 en equipos de 6 núcleos o más (como el iPhone Pro) y 2 en los demás; si la app llegara a cerrarse por memoria, baja sola uno. Este equipo: ${navigator.hardwareConcurrency || '?'} núcleos.`),
     opcionesProcesos(),
     h('h3', {}, 'Prueba de rendimiento'),
     pruebaRendimiento());
   return cont;
 }
 
+function opcionesCalidad() {
+  const g = h('div', { class: 'rejilla-opciones', role: 'radiogroup', 'aria-label': 'Calidad de las voces naturales' });
+  for (const [c, t] of [['rapida', 'Rápida'], ['equilibrada', 'Equilibrada'], ['natural', 'Natural']]) {
+    const activa = (ctx.ajustes.calidadVoz || 'rapida') === c;
+    g.append(h('button', { type: 'button', role: 'radio', 'aria-checked': String(activa), class: 'opcion' + (activa ? ' activa' : ''), onclick: async (e) => {
+      await guardarAjustes({ calidadVoz: c, numSteps: PASOS_CALIDAD[c] });
+      g.querySelectorAll('.opcion').forEach((x) => { x.classList.remove('activa'); x.setAttribute('aria-checked', 'false'); });
+      e.currentTarget.classList.add('activa'); e.currentTarget.setAttribute('aria-checked', 'true');
+    } }, t));
+  }
+  return g;
+}
+
 function opcionesProcesos() {
   const g = h('div', { class: 'rejilla-opciones', role: 'radiogroup', 'aria-label': 'Velocidad de preparación' });
-  const actual = ctx.ajustes.paralelo === 1 || ctx.ajustes.paralelo === 2 ? ctx.ajustes.paralelo : 'auto';
-  for (const [n, t] of [['auto', 'Automática'], [1, 'Normal'], [2, 'Rápida']]) {
+  const actual = [1, 2, 3].includes(ctx.ajustes.paralelo) ? ctx.ajustes.paralelo : 'auto';
+  for (const [n, t] of [['auto', 'Automática'], [1, '1 proceso'], [2, '2 procesos'], [3, '3 procesos']]) {
     g.append(h('button', { type: 'button', role: 'radio', 'aria-checked': String(actual === n), class: 'opcion' + (actual === n ? ' activa' : ''), onclick: async (e) => {
       await guardarAjustes({ paralelo: n });
-      try { localStorage.removeItem('vozi-un-proceso'); } catch (err) { /* sin almacenamiento */ }
+      try { localStorage.removeItem('vozi-max-procesos'); } catch (err) { /* sin almacenamiento */ }
       ctx.motor.terminar();
       g.querySelectorAll('.opcion').forEach((x) => { x.classList.remove('activa'); x.setAttribute('aria-checked', 'false'); });
       e.currentTarget.classList.add('activa'); e.currentTarget.setAttribute('aria-checked', 'true');

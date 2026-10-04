@@ -476,7 +476,8 @@ async function alRecibirCambios(cambios) {
 
 async function iniciar() {
   let perfil;
-  if (revisarCierreInesperado()) setTimeout(() => aviso('VOZI se cerró mientras preparaba audio con dos procesos. Para cuidar la memoria ahora usa uno solo (puedes cambiarlo en Ajustes → Lectura).', { ms: 9000 }), 1500);
+  const cayo = revisarCierreInesperado();
+  if (cayo) setTimeout(() => aviso(`VOZI se cerró mientras preparaba audio con ${cayo} procesos. Para cuidar la memoria ahora usará ${cayo - 1} (puedes cambiarlo en Ajustes → Lectura).`, { ms: 9000 }), 1500);
   // Enlaces de los correos de la cuenta (confirmación o nueva contraseña)
   const enlace = N.leerEnlaceDeCorreo();
   let recuperacion = null;
@@ -525,7 +526,7 @@ async function iniciar() {
   if (recuperacion) setTimeout(() => dialogoNuevaPassword(recuperacion), 600);
   matchMedia('(prefers-color-scheme: dark)').addEventListener('change', aplicarTema);
   ctx.motor = new MotorVoz();
-  ctx.motor.onDegradado = () => aviso('Uno de los procesos de voz se quedó sin memoria; VOZI sigue con uno solo.', { ms: 6000 });
+  ctx.motor.onDegradado = () => aviso('Uno de los procesos de voz se quedó sin memoria; VOZI sigue con los demás.', { ms: 6000 });
   ctx.rep = new Reproductor();
   ctx.rep.setVelocidad(ctx.ajustes.velocidad || 1);
   configurarReproductor();

@@ -12,7 +12,8 @@ export const AJUSTES_DEF = {
   velocidad: 1,             // velocidad de reproducción (sin cambiar tono)
   seguirLectura: true,      // desplazar el texto con el audio
   cps: 13.5,                // caracteres por segundo medidos (se ajusta solo)
-  numSteps: 5,
+  numSteps: 3,
+  calidadVoz: 'rapida',      // natural (5 pasos) · equilibrada (4) · rapida (3)
   diccionario: [],          // [{escrito, dicho}]
   prepararSiguiente: true,  // preparar el siguiente tramo mientras se escucha
   leerNotasPie: false,      // las notas al pie se muestran pero la voz las omite
@@ -30,9 +31,12 @@ export const ctx = {
   vistas: {},
 };
 
+export const PASOS_CALIDAD = { natural: 5, equilibrada: 4, rapida: 3 };
+
 export async function cargarAjustes() {
   const a = await getSetting('ajustes', {});
   ctx.ajustes = { ...AJUSTES_DEF, ...(a || {}) };
+  ctx.ajustes.numSteps = PASOS_CALIDAD[ctx.ajustes.calidadVoz] || 3;
   return ctx.ajustes;
 }
 

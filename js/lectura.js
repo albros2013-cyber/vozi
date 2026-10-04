@@ -64,14 +64,19 @@ function cancelarSiguiente() {
 
 // Cuántos procesos de síntesis usar. «auto» usa dos (casi el doble de rápido) salvo que el equipo
 // tenga un solo núcleo, poca memoria, o la app se haya cerrado antes mientras preparaba con dos.
+function esIOS() { return /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1); }
+
 export function procesosEfectivos() {
   const p = ctx.ajustes.paralelo;
-  if (p === 1 || p === 2) return p;
-  try { if (localStorage.getItem('vozi-un-proceso') === '1') return 1; } catch (e) { /* sin almacenamiento */ }
+  if (p === 1 || p === 2 || p === 3) return p;
+  let n;
   const nucleos = navigator.hardwareConcurrency || 2;
   const memoria = navigator.deviceMemory; // no existe en Safari
-  if (nucleos < 2 || (memoria && memoria < 3)) return 1;
-  return 2;
+  if (nucleos < 2 || (memoria && memoria < 3)) n = 1;
+  else if ((nucleos >= 6 || (esIOS() && nucleos >= 4)) && !(memoria && memoria < 6)) n = 3; // p. ej. iPhone Pro: 6 núcleos
+  else n = 2;
+  try { const max = +localStorage.getItem('vozi-max-procesos'); if (max) n = Math.min(n, max); } catch (e) { /* sin almacenamiento */ }
+  return n;
 }
 
 async function asegurarMotor(pack, alEstado) {
@@ -130,7 +135,7 @@ function audioCompatible(a) {
   const vozEs = ctx.ajustes.vozId, vozEn = ctx.ajustes.vozIdEn || 'en-emma';
   return a.parrafos && a.parrafosHash && a.tiempos
     && (a.vozEsId || String(a.vozId).split('+')[0]) === vozEs && (!a.vozEnId || a.vozEnId === vozEn)
-    && (a.numSteps || 5) === (ctx.ajustes.numSteps || 5) && !!a.notasPie === !!ctx.ajustes.leerNotasPie;
+    && !!a.notasPie === !!ctx.ajustes.leerNotasPie; // otra calidad (pasos) sirve igual: no se rehace
 }
 
 // Busca un tramo ya preparado que CONTENGA el párrafo (no solo que empiece en él) y siga válido

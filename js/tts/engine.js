@@ -119,11 +119,13 @@ export class MotorVoz {
       if (gen !== this.gen) { pr.terminar(); return; }
       this.procesos.push(pr);
       for (const sumar of this.activas) sumar(pr); // repartir también el trabajo en curso
+      if (this.procesos.length < this.paralelo) this._sumarProceso(pack, gen); // el siguiente, uno tras otro
     }, () => {
       if (this.cargando === pr) this.cargando = null;
       pr.terminar();
       if (gen !== this.gen) return;
-      this.paralelo = 1; // el segundo no cupo en memoria: seguir con uno
+      this.paralelo = this.procesos.length; // no cupo otro en memoria: seguir con los que hay
+      limitarProcesos(this.paralelo);
       this.onDegradado && this.onDegradado();
     });
   }
@@ -137,7 +139,7 @@ export class MotorVoz {
     const enCurso = new Map();
     const pendientes = []; // oraciones que fallaron en un proceso caído y se repiten en otro
     const reintentadas = new Set();
-    marcarSintesis(this.procesos.length > 1);
+    marcarSintesis(this.procesos.length > 1 ? this.procesos.length : 0);
     let sumar = null;
     return new Promise((resolve, reject) => {
       const terminar = (err) => {
@@ -162,7 +164,7 @@ export class MotorVoz {
           const m = res[0];
           chars += items[i].text.length;
           if (m) audioSeg += m.samples.length / m.sampleRate;
-          marcarSintesis(this.procesos.length > 1);
+          marcarSintesis(this.procesos.length > 1 ? this.procesos.length : 0);
           onItem && onItem({ ...(m || { samples: new Float32Array(0), sampleRate: 24000 }), index: i, id: items[i].id, progress: chars / total, elapsedMs: performance.now() - t0, audioSeg });
           lanzar(pr);
         }, (e) => {
@@ -173,8 +175,8 @@ export class MotorVoz {
             reintentadas.add(i);
             this.procesos = this.procesos.filter((x) => x !== pr);
             pr.terminar();
-            this.paralelo = 1;
-            try { localStorage.setItem('vozi-un-proceso', '1'); } catch (err) { /* sin almacenamiento */ }
+            this.paralelo = this.procesos.length;
+            limitarProcesos(this.paralelo);
             this.onDegradado && this.onDegradado();
             pendientes.push(i);
             if (activos === 0) lanzar(this.procesos[0]);
@@ -201,9 +203,10 @@ export class MotorVoz {
 // Mientras se prepara con dos procesos se deja una marca. Si iOS cierra la app por memoria,
 // la marca sobrevive y al volver a abrir VOZI pasa a un solo proceso.
 const MARCA = 'vozi-sintesis-doble';
+export function limitarProcesos(n) { try { localStorage.setItem('vozi-max-procesos', String(Math.max(1, n))); } catch (e) { /* sin almacenamiento */ } }
 function marcarSintesis(activa) {
   try {
-    if (activa && document.visibilityState === 'visible') localStorage.setItem(MARCA, String(Date.now()));
+    if (activa && document.visibilityState === 'visible') localStorage.setItem(MARCA, Date.now() + ':' + activa);
     else localStorage.removeItem(MARCA);
   } catch (e) { /* sin almacenamiento */ }
 }
@@ -215,9 +218,9 @@ if (typeof document !== 'undefined') {
 // Devuelve true si la última sesión se cerró de golpe mientras preparaba con dos procesos
 export function revisarCierreInesperado() {
   try {
-    const t = +localStorage.getItem(MARCA);
+    const [t, n] = String(localStorage.getItem(MARCA) || '').split(':').map(Number);
     localStorage.removeItem(MARCA);
-    if (t && Date.now() - t < 15 * 60 * 1000) { localStorage.setItem('vozi-un-proceso', '1'); return true; }
+    if (t && Date.now() - t < 15 * 60 * 1000) { limitarProcesos((n || 2) - 1); return n || 2; }
   } catch (e) { /* sin almacenamiento */ }
   return false;
 }

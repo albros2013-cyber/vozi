@@ -78,6 +78,8 @@ Medido en Chromium con 2 núcleos (el iPhone tiene 6, así que allí debería re
 - **OCR:** modelos «tessdata_fast» (6 MB en vez de 29 MB) y dos páginas a la vez. 10 páginas escaneadas: 15,8 s → 4,6 s. Precisión en los documentos de prueba: 0 % de error de caracteres (antes 0-0,4 %). En fotos muy malas, «fast» puede fallar algo más que el modelo anterior.
 - **Sin cuelgues al final de un tramo:** si el tramo termina antes de que el siguiente esté completo, VOZI entrega en ese momento las oraciones ya listas y sigue preparando el resto (prueba: espera de 0,6 s en vez de esperar el tramo entero, sin saltar ni repetir texto). Si el equipo prepara casi tan lento como lee, sugiere una vez «Preparar todo el documento».
 - **Avisos de sincronización:** «Se actualizó tu información desde otro dispositivo» salía cada vez, porque la base de datos devuelve el JSON con las claves en otro orden. Corregido; además solo avisa por cambios de contenido y como mucho cada 10 minutos.
+- **Calidad de voz** (Ajustes → Voz): Rápida (3 pasos, por defecto), Equilibrada (4) y Natural (5). Transcripción automática de la misma frase con voz femenina y masculina: con 5 y 3 pasos se entiende igual (una sílaba dudosa con 3 pasos en la voz masculina); con 2 pasos se cambian palabras («competencia» → «convidencia»), por eso no se ofrece. Preparación: factor 0,94 → 0,65 con un proceso y 0,55 → 0,39 con dos.
+- **Hasta 3 procesos**: «Automática» usa 3 en equipos de 6 núcleos (iPhone Pro); si la app se cierra por memoria baja uno. En el equipo de prueba (2 núcleos) 3 procesos no aportan, como era de esperar.
 - Regresión completa: todas las fases superadas; cuentas en la nube 16/16.
 
 ## 3. Pendiente de verificar en iPhone/iPad (no probado)
