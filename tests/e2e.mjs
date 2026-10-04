@@ -461,6 +461,24 @@ if (quiere('ia')) {
   ok('IA: sin errores', errores.length === errs0, errores.slice(errs0).join(' | '));
   await page.evaluate(() => localStorage.removeItem('vozi-ia-simulada'));
 }
+if (quiere('actualizar-motor')) {
+  // Al actualizar el motor, una copia vieja guardada con la misma dirección no debe bloquear la descarga
+  const r = await page.evaluate(async () => {
+    const R = await import('./js/resources.js');
+    const man = await R.cargarManifiesto();
+    const motor = man.packs.find((p) => p.id === 'motor-voz');
+    const c = await caches.open(R.RES_CACHE);
+    const url = new URL(motor.files.find((f) => /\.wasm$/.test(f.fs)).chunks[0].url, location.href).href;
+    await c.put(url, new Response(new Uint8Array(100000), { headers: { 'Content-Type': 'application/wasm' } })); // «versión vieja»
+    await window.__vozi.db.del('resources', `pack:${motor.id}@${motor.version}`);
+    let error = null;
+    try { await R.descargarPaquete(motor, null); } catch (e) { error = e.message; }
+    const st = await R.estadoPaquete(motor);
+    const tam = (await (await c.match(url)).arrayBuffer()).byteLength;
+    return { error, instalado: st.instalado, tam };
+  });
+  ok('Actualizar el motor reemplaza la copia vieja sin error de integridad', !r.error && r.instalado && r.tam > 1e6, JSON.stringify(r));
+}
 if (quiere('corte')) {
   // Si el tramo actual termina antes de que el siguiente esté listo, se entrega ya lo que haya
   await page.evaluate(async () => {

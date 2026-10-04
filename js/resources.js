@@ -91,6 +91,9 @@ export async function descargarPaquete(pack, onProgreso, signal) {
     while (true) {
       if (signal && signal.aborted) throw new ErrorDescarga('cancelada', 'Descarga en pausa. Lo descargado se conserva.');
       try {
+        // Quitar una copia vieja con la misma dirección (p. ej. de una versión anterior del motor):
+        // si no, el service worker la entregaría en lugar de la nueva y no pasaría la verificación.
+        await cache.delete(abs(c.url));
         const buf = await bajarTrozo(abs(c.url), c.size, signal, (n) => {
           const vel = (bajadosSesion + n) / ((performance.now() - t0) / 1000);
           onProgreso && onProgreso({ bytesHechos: bytes + n, bytesTotal: total, velocidad: vel });
