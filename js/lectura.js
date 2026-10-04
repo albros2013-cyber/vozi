@@ -79,7 +79,7 @@ async function asegurarMotor(pack, alEstado) {
 }
 
 // Prepara un tramo (o lo recupera si ya estaba guardado)
-async function obtenerTramo(doc, inicioIdx, minutos, { visible, signal, onPlan, onProgreso, desdeOracion = 0, rapido = false }) {
+async function obtenerTramo(doc, inicioIdx, minutos, { visible, signal, onPlan, onProgreso, corte, desdeOracion = 0, rapido = false }) {
   const propio = visible ? est.preparando : null;
   const actualizar = (cambios) => {
     if (!propio) return;
@@ -111,7 +111,7 @@ async function obtenerTramo(doc, inicioIdx, minutos, { visible, signal, onPlan, 
     if (visible) actualizar({ fase: 'motor', fraccion: 0, carga: m.progress });
   });
   if (visible) actualizar({ fase: 'voz', fraccion: 0, restanteSeg: null });
-  const rec = await prepararTramo({ motor: ctx.motor, doc, plan, voz, pack, ajustes: ctx.ajustes, onProgreso: progreso, signal });
+  const rec = await prepararTramo({ motor: ctx.motor, doc, plan, voz, pack, ajustes: ctx.ajustes, onProgreso: progreso, signal, corte });
   // Velocidad real de preparación en este dispositivo (para dimensionar el siguiente tramo)
   if (rec.segSintesis && rec.duracion > 3) {
     const r = rec.segSintesis / rec.duracion;
@@ -266,7 +266,7 @@ function programarSiguiente(rec) {
   if (est.siguiente && est.siguiente.desde === clave) return;
   cancelarSiguiente();
   const abort = new AbortController();
-  const sig = { desde: clave, abort, fraccion: 0, rec: null, docId: doc.id, parrafos: null };
+  const sig = { desde: clave, abort, fraccion: 0, rec: null, docId: doc.id, parrafos: null, corte: { pedido: false } };
   // Tamaño adaptativo: que el siguiente tramo alcance a estar listo antes de que termine el actual
   const rtf = Math.max(0.25, ctx.ajustes.rtf || 1);
   const minutos = Math.max(0.5, Math.min(ctx.ajustes.tramoMin, (rec.duracion * 0.85) / rtf / 60));
@@ -279,11 +279,12 @@ function programarSiguiente(rec) {
     // 2) Lo está preparando ahora mismo «Preparar todo» → esperar ese mismo trabajo
     if (todo.activo && todo.docId === doc.id && todo.actual && todo.actual.clave === clave) {
       sig.parrafos = todo.actual.parrafos;
+      sig.corte = todo.actual.corte; // si hay que esperar, se puede entregar lo que lleve listo
       const r = await todo.actual.promesa.catch(() => null);
       if (r) return r;
     }
     if (abort.signal.aborted) return null;
-    return obtenerTramo(doc, desde, minutos, { visible: false, signal: abort.signal, desdeOracion: desdeS, rapido: rtf > 0.6, onPlan: (p) => { sig.parrafos = p.parrafos; } });
+    return obtenerTramo(doc, desde, minutos, { visible: false, signal: abort.signal, corte: sig.corte, desdeOracion: desdeS, rapido: rtf > 0.6, onPlan: (p) => { sig.parrafos = p.parrafos; } });
   })()
     .then((r) => { sig.rec = r; emitir('siguiente', sig); return r; })
     .catch((e) => { if (e.name !== 'AbortError') console.warn('Siguiente tramo:', e); sig.error = e; emitir('siguiente', sig); return null; });
@@ -308,6 +309,10 @@ export async function alTerminarTramo() {
     if (!est.siguiente.rec) {
       est.esperandoSiguiente = true;
       emitir('esperando', true);
+      // Entregar ya las oraciones que estén listas en vez de esperar el tramo completo
+      const c = est.siguiente.corte;
+      if (c) { c.pedido = true; c.alPedir && c.alPedir(); }
+      sugerirPrepararTodo();
       rec = await est.siguiente.promesa;
       est.esperandoSiguiente = false;
       emitir('esperando', false);
@@ -321,6 +326,14 @@ export async function alTerminarTramo() {
   await ctx.rep.reproducir();
   emitir('tramo', rec);
   programarSiguiente(rec);
+}
+
+// Si el equipo prepara más lento que la lectura, sugerir una vez por sesión «Preparar todo»
+let sugerido = false;
+function sugerirPrepararTodo() {
+  if (sugerido || todo.activo || !((ctx.ajustes.rtf || 0) > 0.85)) return;
+  sugerido = true;
+  setTimeout(() => aviso('Este equipo prepara la voz casi tan lento como la lee. Para escuchar sin pausas: botón ••• → «Preparar todo el documento».', { ms: 9000 }), 1500);
 }
 
 // Guarda el punto de lectura (párrafo, oración, audio y tiempo)
@@ -443,9 +456,9 @@ export async function prepararTodo({ desdeInicio = false } = {}) {
       if (!rec) {
         const restante = caracteresLeibles(doc, pos.p);
         const largo = Math.min(restante, (ctx.ajustes.tramoMin || 5) * 60 * (ctx.ajustes.cps || 14));
-        const actual = { clave, parrafos: null };
+        const actual = { clave, parrafos: null, corte: { pedido: false } };
         actual.promesa = obtenerTramo(doc, pos.p, ctx.ajustes.tramoMin || 5, {
-          visible: false, signal: abort.signal, desdeOracion: pos.s, rapido: false,
+          visible: false, signal: abort.signal, corte: actual.corte, desdeOracion: pos.s, rapido: false,
           onPlan: (p) => { actual.parrafos = p.parrafos; },
           onProgreso: (p) => avance(p.fraccion || 0, largo),
         });

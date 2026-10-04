@@ -178,8 +178,34 @@ export function codificarWav(samples, sampleRate) {
 }
 
 // Prepara (sintetiza, ensambla y guarda) un tramo. onProgreso({fraccion, restanteSeg, fase})
-export async function prepararTramo({ motor, doc, plan, voz, pack, ajustes, onProgreso, signal }) {
-  const piezas = new Array(plan.items.length);
+// Recorta un plan hasta la unidad k (incluida): queda un tramo válido y más corto
+export function truncarPlan(plan, k) {
+  const items = plan.items.slice(0, k + 1);
+  const ult = items[k], sig = plan.items[k + 1];
+  const fin = ult.pidx;
+  const finS = ult.oraciones[ult.oraciones.length - 1].s;
+  const completo = !sig || sig.pidx !== fin;
+  const usados = new Set(items.map((x) => x.pid));
+  return { ...plan, items, parrafos: plan.parrafos.filter((id) => usados.has(id)), fin, finS, completo,
+    textHash: hashTexto(items.map((x) => x.lang + ':' + x.text).join('\n')) };
+}
+
+// corte: {pedido, alPedir} — si quien escucha ya está esperando, se entrega YA lo que esté listo
+// (las primeras oraciones terminadas) y el resto pasa al tramo siguiente.
+export async function prepararTramo({ motor, doc, plan, voz, pack, ajustes, onProgreso, signal, corte }) {
+  let piezas = new Array(plan.items.length);
+  const interno = new AbortController();
+  if (signal) { if (signal.aborted) interno.abort(); else signal.addEventListener('abort', () => interno.abort(), { once: true }); }
+  let cortarEn = -1;
+  const intentarCorte = () => {
+    if (!corte || !corte.pedido || cortarEn >= 0) return;
+    let k = -1;
+    for (let i = 0; i < piezas.length && piezas[i]; i++) if (plan.items[i].pausa !== PAUSAS.parte) k = i; // nunca a mitad de oración
+    if (k < 0 || k >= plan.items.length - 1) return;
+    cortarEn = k;
+    interno.abort();
+  };
+  if (corte) corte.alPedir = intentarCorte;
   const outRate = pack.engine === 'supertonic' ? 24000 : undefined;
   let sr = outRate || pack.sampleRate || 22050;
   const t0 = performance.now();
@@ -196,9 +222,12 @@ export async function prepararTramo({ motor, doc, plan, voz, pack, ajustes, onPr
       const trans = (performance.now() - t0) / 1000;
       const restante = m.progress > 0.02 ? trans * (1 - m.progress) / m.progress : null;
       onProgreso && onProgreso({ fraccion: m.progress, restanteSeg: restante, fase: 'voz', rtf: m.audioSeg ? trans / m.audioSeg : null });
+      intentarCorte();
     },
-    signal,
-  );
+    interno.signal,
+  ).catch((e) => { if (!(cortarEn >= 0 && e.name === 'AbortError' && !(signal && signal.aborted))) throw e; });
+  if (corte) corte.alPedir = null;
+  if (cortarEn >= 0) { plan = truncarPlan(plan, cortarEn); piezas = piezas.slice(0, cortarEn + 1); }
   onProgreso && onProgreso({ fraccion: 1, restanteSeg: 0, fase: 'guardando' });
   const { samples, tiempos, duracion } = ensamblar(piezas.filter(Boolean), sr);
   const blob = codificarWav(samples, sr);

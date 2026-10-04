@@ -398,6 +398,38 @@ if (quiere('todo')) {
   ok('Sin errores en «Preparar todo»', errores.length === errs0, errores.slice(errs0).join(' | '));
   await page.evaluate(() => { window.__vozi.ctx.ajustes.tramoMin = 5; });
 }
+if (quiere('corte')) {
+  // Si el tramo actual termina antes de que el siguiente esté listo, se entrega ya lo que haya
+  await page.evaluate(async () => {
+    const { ctx, db } = window.__vozi;
+    window.__antes = { p: ctx.ajustes.primerTramoCorto, m: ctx.ajustes.tramoMin, r: ctx.ajustes.rtf };
+    await db.put('docs', { id: 'dcorte', title: 'Corte', createdAt: Date.now(), updatedAt: Date.now(), source: { type: 'texto' }, pages: 0,
+      paragraphs: Array.from({ length: 8 }, (_, i) => ({ id: 'k' + i, text: `Punto ${i + 1}. La empresa revisó sus indicadores con cuidado. Luego decidió ajustar la estrategia comercial del semestre. Los resultados se medirán cada mes.`, page: null, kind: 'p' })) });
+    ctx.ajustes.primerTramoCorto = true; ctx.ajustes.tramoMin = 5; ctx.ajustes.rtf = 1.4;
+  });
+  const errs0 = errores.length;
+  await irA('biblioteca'); await page.click('.doc-abrir:has-text("Corte")'); await page.waitForSelector('.texto-lectura .parrafo');
+  await page.evaluate(() => window.__vozi.L.escucharDesde(0));
+  await page.waitForFunction(() => window.__vozi.ctx.rep.reproduciendo && window.__vozi.L.estadoLectura.siguiente, null, { timeout: 300000 });
+  const r = await page.evaluate(async () => {
+    const { ctx, L } = window.__vozi;
+    const primero = ctx.rep.tramo;
+    await new Promise((x) => setTimeout(x, 1500));
+    const t = performance.now();
+    await L.alTerminarTramo(); // simula que el tramo actual se acabó antes de tiempo
+    const espera = performance.now() - t;
+    const b = ctx.rep.tramo;
+    const esperado = primero.completo === false ? [primero.fin, primero.finS + 1] : [primero.fin + 1, 0];
+    const sigDesde = L.estadoLectura.siguiente && L.estadoLectura.siguiente.desde;
+    const esperadoSig = b.completo === false ? `${b.fin}:${b.finS + 1}` : `${b.fin + 1}:0`;
+    ctx.rep.pausar();
+    return { espera, contiguo: b.inicio === esperado[0] && (b.desdeOracion || 0) === esperado[1], durB: b.duracion, sigDesde, esperadoSig };
+  });
+  ok('Al quedarse sin audio, entrega lo listo en segundos', r.espera < 15000 && r.durB < 25, `espera ${(r.espera / 1000).toFixed(1)} s · continuación de ${r.durB.toFixed(1)} s`);
+  ok('El corte continúa sin saltar ni repetir texto', r.contiguo && r.sigDesde === r.esperadoSig, `siguiente desde ${r.sigDesde} (esperado ${r.esperadoSig})`);
+  ok('Sin errores en el corte', errores.length === errs0, errores.slice(errs0).join(' | '));
+  await page.evaluate(() => { const a = window.__antes, c = window.__vozi.ctx.ajustes; c.primerTramoCorto = a.p; c.tramoMin = a.m; c.rtf = a.r; });
+}
 if (quiere('notas')) {
   await importarArchivo(FIX + 'notas.pdf');
   await page.waitForSelector('button:has-text("Importar")', { timeout: 30000 });

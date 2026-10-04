@@ -111,7 +111,7 @@ export function actualizarReproductor() {
   } else {
     $('repBarra').classList.remove('preparando');
     const voz = vozPorId(ctx.ajustes.vozId);
-    if (L.estadoLectura.esperandoSiguiente) estado = 'Terminando de preparar la continuación…';
+    if (L.estadoLectura.esperandoSiguiente) { const sg = L.estadoLectura.siguiente; estado = 'Preparando la continuación' + (sg && sg.fraccion ? ` · ${Math.round(sg.fraccion * 100)} %` : '') + '…'; }
     else if (rep.tramo) {
       const sig = L.estadoLectura.siguiente;
       const extra = sig && !sig.rec && sig.fraccion != null ? ` · siguiente tramo ${Math.round((sig.fraccion || 0) * 100)} %` : (sig && sig.rec ? ' · siguiente tramo listo' : '');
