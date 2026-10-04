@@ -262,44 +262,55 @@ async function registrarSW() {
 
 // ---------- Inicio ----------
 // ---------- Sesiones de usuario ----------
+// Al abrir VOZI: si la sesión de cuenta está abierta se entra directo; si no, primero el registro o el inicio de sesión.
 async function elegirPerfil() {
   const lista = await P.listarPerfiles();
   const activo = await P.perfilActivoId();
   const actual = lista.find((p) => p.id === activo);
   const forzar = sessionStorage.getItem('vozi-elegir') === '1';
   sessionStorage.removeItem('vozi-elegir');
-  if (actual && !forzar && !actual.pinHash && !(lista.length > 1 && await P.preguntarAlIniciar())) return actual;
-  if (lista.length === 1 && !lista[0].pinHash && !forzar) { await P.fijarPerfilActivo(lista[0].id); return lista[0]; }
-  // Pantalla «¿Quién va a estudiar?»
+  if (actual && actual.cuenta && actual.conectada && !forzar && !actual.pinHash) return actual;
+  // Solo para pruebas automáticas sin servidor: entrar en modo local
+  let modoLocal = false; try { modoLocal = localStorage.getItem('vozi-pruebas-local') === '1'; } catch { /* sin localStorage */ }
+  if (modoLocal && !forzar) { const loc = actual || lista[0]; await P.fijarPerfilActivo(loc.id); return loc; }
   document.body.classList.add('eligiendo-perfil');
   const main = document.getElementById('principal');
   return new Promise((resolve) => {
+    const terminar = (p) => { document.body.classList.remove('eligiendo-perfil'); resolve(p); };
+    const conCuenta = async (modo) => { const ses = await dialogoCuenta(modo); if (ses) terminar(await prepararSesionCuenta(ses)); };
     const pintar = async () => {
       const perfiles = await P.listarPerfiles();
+      const abiertas = perfiles.filter((p) => p.cuenta && p.conectada);
       main.innerHTML = '';
-      main.append(h('section', { class: 'vista selector-perfiles' },
-        h('h1', {}, '¿Quién va a estudiar?'),
-        h('p', { class: 'nota-suave' }, 'Cada persona tiene su propia biblioteca, notas, progreso y ajustes en este dispositivo.'),
-        h('div', { class: 'rejilla-perfiles' },
-          perfiles.map((p) => h('button', { class: 'perfil', onclick: async () => {
+      main.append(h('section', { class: 'vista bienvenida-cuenta' },
+        h('div', { class: 'logo-grande', 'aria-hidden': 'true' }, h('img', { src: 'icons/icon-192.png', alt: '', width: 96, height: 96 })),
+        h('h1', {}, 'VOZI'),
+        h('p', { class: 'lema' }, 'Escucha tus materiales de estudio con voz natural.'),
+        h('div', { class: 'acciones-acceso' },
+          h('button', { class: 'boton primario grande', onclick: () => conCuenta('entrar') }, 'Iniciar sesión'),
+          h('button', { class: 'boton grande', onclick: () => conCuenta('crear') }, 'Crear cuenta')),
+        h('p', { class: 'nota-suave' }, 'Tu cuenta guarda tu biblioteca, notas y progreso, y los sincroniza entre tu iPhone, iPad y computador.'),
+        abiertas.length ? h('div', { class: 'sesiones-abiertas' },
+          h('h2', {}, 'Sesiones abiertas en este dispositivo'),
+          h('div', { class: 'rejilla-perfiles' }, abiertas.map((p) => h('button', { class: 'perfil', onclick: async () => {
             if (p.pinHash) {
               const pin = await pedirPin(`PIN de ${p.nombre}`);
               if (pin == null) return;
               if (!(await P.verificarPin(p, pin))) { aviso('PIN incorrecto.', { tipo: 'error' }); return; }
             }
             await P.fijarPerfilActivo(p.id);
-            document.body.classList.remove('eligiendo-perfil');
-            resolve(p);
-          } }, h('span', { class: 'avatar grande', style: { background: p.color } }, P.iniciales(p.nombre)), h('span', {}, p.nombre), p.pinHash ? h('span', { class: 'nota-suave' }, '🔒 con PIN') : null)),
-          h('button', { class: 'perfil nuevo', onclick: async () => { if (await dialogoNuevoPerfil()) pintar(); } },
-            h('span', { class: 'avatar grande vacio-av' }, '+'), h('span', {}, 'Añadir persona'))),
-        h('div', { class: 'acceso-cuenta' },
-          h('p', { class: 'nota-suave' }, '¿Usas VOZI en varios dispositivos? Entra con tu cuenta para tener tu biblioteca y tus notas en todos.'),
-          h('div', { class: 'fila-botones centrada' },
-            h('button', { class: 'boton primario', onclick: async () => { const ses = await dialogoCuenta('entrar'); if (ses) resolve(await prepararSesionCuenta(ses)); } }, 'Entrar con mi cuenta'),
-            h('button', { class: 'boton', onclick: async () => { const ses = await dialogoCuenta('crear'); if (ses) resolve(await prepararSesionCuenta(ses)); } }, 'Crear cuenta')))));
+            terminar(p);
+          } }, h('span', { class: 'avatar grande', style: { background: p.color } }, P.iniciales(p.nombre)), h('span', {}, p.nombre), h('span', { class: 'nota-suave' }, p.cuenta.email))))) : null,
+        // Sin internet no se puede iniciar sesión: se permite usar la app solo en este dispositivo
+        !navigator.onLine ? h('p', { class: 'nota-suave sin-red' }, 'No hay conexión a internet. ',
+          h('button', { class: 'enlace', onclick: async () => {
+            const loc = perfiles.find((p) => !p.cuenta) || await P.crearPerfil('Sin cuenta', null);
+            await P.fijarPerfilActivo(loc.id); terminar(loc);
+          } }, 'Usar sin cuenta en este dispositivo')) : null));
     };
     pintar();
+    window.addEventListener('online', pintar, { once: true });
+    window.addEventListener('offline', pintar, { once: true });
   });
 }
 
@@ -308,19 +319,21 @@ async function prepararSesionCuenta(ses) {
   const p = await P.perfilParaCuenta(ses.usuario);
   await P.fijarPerfilActivo(p.id);
   sessionStorage.setItem('vozi-sesion-pendiente', JSON.stringify({ perfil: p.id, ses }));
+  if (p.nuevaConexion) setTimeout(() => aviso('Lo que tenías guardado en este dispositivo se está subiendo a tu cuenta.', { ms: 6000 }), 1500);
   document.body.classList.remove('eligiendo-perfil');
   return p;
 }
 
-// Conectar la sesión abierta a una cuenta (sube lo que ya hay en el dispositivo)
+// Conectar la sesión abierta (sin cuenta) a una cuenta: sube lo que ya hay en el dispositivo
 export async function conectarCuenta() {
   const ses = await dialogoCuenta('entrar');
   if (!ses) return false;
   const lista = await P.listarPerfiles();
   const otra = lista.find((p) => p.cuenta && p.cuenta.id === ses.usuario.id && p.id !== ctx.perfil.id);
-  if (otra) { aviso(`Esa cuenta ya está en la sesión «${otra.nombre}» de este dispositivo. Cambia a esa sesión.`, { tipo: 'error', ms: 7000 }); return false; }
-  await P.actualizarPerfil(ctx.perfil.id, { cuenta: { id: ses.usuario.id, email: ses.usuario.email } });
-  ctx.perfil.cuenta = { id: ses.usuario.id, email: ses.usuario.email };
+  if (otra) { aviso(`Esa cuenta ya está en otra sesión de este dispositivo («${otra.nombre}»). Usa «Cambiar de cuenta».`, { tipo: 'error', ms: 7000 }); return false; }
+  const cuenta = { id: ses.usuario.id, email: ses.usuario.email };
+  await P.actualizarPerfil(ctx.perfil.id, { cuenta, conectada: true });
+  ctx.perfil.cuenta = cuenta; ctx.perfil.conectada = true;
   await N.activar(ses, { subirTodo: true });
   pintarAvatar(ctx.perfil, (await P.listarPerfiles()).length);
   aviso('Cuenta conectada. Tu información se está subiendo a la nube.');
@@ -329,23 +342,21 @@ export async function conectarCuenta() {
 
 export async function cerrarSesionCuenta() {
   const v = await dialogo({
-    titulo: 'Cerrar sesión de la cuenta',
-    contenido: h('p', {}, 'Tu información sigue guardada en tu cuenta. ¿Qué hacemos con la copia de este dispositivo?'),
-    botones: [{ texto: 'Cancelar', valor: null }, { texto: 'Borrarla de este dispositivo', valor: 'borrar', clase: 'peligro' }, { texto: 'Conservarla', valor: 'conservar', clase: 'primario' }],
+    titulo: 'Cerrar sesión',
+    contenido: h('div', {}, h('p', {}, 'Tu información sigue guardada en tu cuenta.'),
+      h('p', { class: 'nota-suave' }, '«Cerrar sesión» conserva una copia en este dispositivo para que al volver a entrar todo esté listo. Si el dispositivo no es tuyo, borra la copia.')),
+    botones: [{ texto: 'Cancelar', valor: null }, { texto: 'Cerrar y borrar la copia', valor: 'borrar', clase: 'peligro' }, { texto: 'Cerrar sesión', valor: 'conservar', clase: 'primario' }],
   });
   if (!v) return;
-  try { await N.sincronizar(); } catch { /* sin red: lo pendiente se perdería si se borra */ }
+  try { await N.sincronizar(); } catch { /* sin red */ }
   const pend = (await db.all('outbox')).length;
   if (v === 'borrar' && pend && !(await confirmar(`Hay ${pend} cambio(s) que no se han podido subir (¿sin internet?). Si borras ahora se perderán.`, { si: 'Borrar igual', peligro: true }))) return;
-  await N.desactivar();
   L.guardarPosicion();
-  if (v === 'borrar') {
-    await P.eliminarPerfil(ctx.perfil.id);
-    sessionStorage.setItem('vozi-elegir', '1');
-  } else {
-    await P.actualizarPerfil(ctx.perfil.id, { cuenta: null });
-    for (const x of await db.all('outbox')) await db.del('outbox', x.k);
-  }
+  ctx.rep.pausar();
+  await N.desactivar();
+  if (v === 'borrar') await P.eliminarPerfil(ctx.perfil.id);
+  else await P.actualizarPerfil(ctx.perfil.id, { conectada: false });
+  sessionStorage.setItem('vozi-elegir', '1');
   location.reload();
 }
 
@@ -393,7 +404,7 @@ function pintarAvatar(perfil, total, soloEstado) {
       contenido: h('div', {},
         perfil.cuenta && N.hayCuenta() ? h('p', {}, '☁ ', perfil.cuenta.email, h('br'), h('span', { class: 'nota-suave' }, textoEstadoSync(N.estadoSync))) : h('p', { class: 'nota-suave' }, 'Sesión solo en este dispositivo. Puedes conectarla a una cuenta en Ajustes → Cuenta y sesiones.'),
         h('p', { class: 'nota-suave' }, total > 1 ? 'Cambia de persona para ver su biblioteca y sus notas.' : 'Puedes crear sesiones para otras personas que usen este dispositivo.')),
-      botones: [{ texto: 'Gestionar sesiones', valor: 'gestionar' }, { texto: 'Cambiar de persona', valor: 'cambiar', clase: 'primario' }, { texto: 'Cerrar', valor: null }],
+      botones: [{ texto: 'Mi cuenta', valor: 'gestionar' }, { texto: 'Cambiar de cuenta', valor: 'cambiar', clase: 'primario' }, { texto: 'Cerrar', valor: null }],
     });
     if (v === 'cambiar') cambiarDePerfil();
     if (v === 'gestionar') ir('ajustes', { seccion: 'sesiones' });
@@ -441,13 +452,24 @@ async function iniciar() {
     const pendiente = JSON.parse(sessionStorage.getItem('vozi-sesion-pendiente') || 'null');
     sessionStorage.removeItem('vozi-sesion-pendiente');
     if (pendiente && pendiente.perfil === perfil.id) await N.activar(pendiente.ses, { subirTodo: true });
-    else if (perfil.cuenta) await N.activar();
+    else if (perfil.cuenta && !(await N.activar())) {
+      await P.actualizarPerfil(perfil.id, { conectada: false });
+      sessionStorage.setItem('vozi-elegir', '1');
+      location.reload();
+      return;
+    }
   } catch (e) { console.warn('Nube:', e); }
   await cargarAjustes();
   aplicarTema();
   pintarAvatar(perfil, (await P.listarPerfiles()).length);
   N.alCambiarEstado(() => pintarAvatar(ctx.perfil, 0, true));
   window.addEventListener('vozi-nube-cambios', (e) => alRecibirCambios(e.detail));
+  window.addEventListener('vozi-sesion-vencida', async () => {
+    aviso('Tu sesión expiró. Vuelve a escribir tu contraseña para seguir sincronizando.', { ms: 6000 });
+    const ses = await dialogoCuenta('entrar');
+    if (ses && ses.usuario.id === (ctx.perfil.cuenta && ctx.perfil.cuenta.id)) await N.activar(ses);
+    else if (ses) aviso('Esa es otra cuenta. Para cambiar de cuenta usa tu círculo de iniciales → Cambiar de cuenta.', { tipo: 'error', ms: 7000 });
+  });
   if (recuperacion) setTimeout(() => dialogoNuevaPassword(recuperacion), 600);
   matchMedia('(prefers-color-scheme: dark)').addEventListener('change', aplicarTema);
   ctx.motor = new MotorVoz();

@@ -154,7 +154,7 @@ async function seccionSesiones() {
     const preguntar = h('input', { type: 'checkbox', role: 'switch', checked: await P.preguntarAlIniciar() });
     preguntar.addEventListener('change', () => P.fijarPreguntarAlIniciar(preguntar.checked));
     cont.append(
-      h('div', { class: 'fila-botones' }, h('button', { class: 'boton', onclick: async () => { if (await dialogoNuevoPerfil()) pintar(); } }, '+ Añadir persona')),
+      h('div', { class: 'fila-botones' }, h('button', { class: 'boton', onclick: () => cambiarDePerfil() }, 'Entrar con otra cuenta')),
       h('label', { class: 'interruptor' }, h('span', {}, 'Preguntar quién va a estudiar al abrir VOZI'), preguntar),
       h('p', { class: 'nota-suave' }, 'Las sesiones con PIN siempre lo piden al abrir la app. El PIN evita el acceso casual entre personas que comparten el dispositivo; no cifra los datos. Las copias de seguridad se hacen por sesión.'));
   };

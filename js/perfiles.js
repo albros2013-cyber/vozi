@@ -77,6 +77,7 @@ export async function actualizarPerfil(id, cambios) {
   if (!p) return null;
   if ('nombre' in cambios) p.nombre = cambios.nombre.trim().slice(0, 40) || p.nombre;
   if ('cuenta' in cambios) { if (cambios.cuenta) p.cuenta = cambios.cuenta; else delete p.cuenta; }
+  if ('conectada' in cambios) p.conectada = !!cambios.conectada;
   if ('pin' in cambios) {
     if (cambios.pin) { p.sal = aleatorio(); p.pinHash = await hashPin(cambios.pin, p.sal); }
     else { delete p.sal; delete p.pinHash; }
@@ -104,9 +105,17 @@ export async function eliminarPerfil(id) {
 export async function perfilParaCuenta(usuario) {
   const lista = await listarPerfiles();
   const existente = lista.find((p) => p.cuenta && p.cuenta.id === usuario.id);
-  if (existente) return existente;
-  // Si solo hay una sesión local vacía de nombre «Yo», se reutiliza para la cuenta
-  return crearPerfil(usuario.email.split('@')[0], null, { id: usuario.id, email: usuario.email });
+  const cuenta = { id: usuario.id, email: usuario.email };
+  if (existente) { await actualizarPerfil(existente.id, { conectada: true }); return { ...existente, conectada: true }; }
+  // Primera vez: si en el dispositivo hay una única sesión sin cuenta (la de antes), se conecta a la cuenta
+  // para no perder lo que ya estaba guardado (se sube a la nube).
+  const locales = lista.filter((p) => !p.cuenta);
+  if (locales.length === 1) {
+    const p = await actualizarPerfil(locales[0].id, { cuenta, conectada: true, nombre: locales[0].nombre === 'Yo' ? usuario.email.split('@')[0] : locales[0].nombre });
+    return { ...p, nuevaConexion: true };
+  }
+  const p = await crearPerfil(usuario.email.split('@')[0], null, cuenta);
+  return actualizarPerfil(p.id, { conectada: true });
 }
 
 export function iniciales(nombre) {

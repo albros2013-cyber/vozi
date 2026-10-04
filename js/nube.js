@@ -92,7 +92,13 @@ export async function cambiarPassword(nueva, token) {
 }
 
 async function refrescar() {
-  const { json } = await llamar('/auth/v1/token?grant_type=refresh_token', { metodo: 'POST', cuerpo: { refresh_token: sesion.refresh } });
+  let json;
+  try {
+    ({ json } = await llamar('/auth/v1/token?grant_type=refresh_token', { metodo: 'POST', cuerpo: { refresh_token: sesion.refresh } }));
+  } catch (e) {
+    if (!e.sinRed) window.dispatchEvent(new CustomEvent('vozi-sesion-vencida'));
+    throw e;
+  }
   sesion = { ...desdeRespuesta(json) };
   await setSetting('nube-sesion', sesion);
 }

@@ -327,3 +327,13 @@ body.eligiendo-perfil .pestanas, body.eligiendo-perfil .reproductor, body.eligie
 #perfilBtn.con-error::after { content: "!"; color: var(--peligro); font-weight: 800; }
 .acceso-cuenta { margin-top: 30px; padding-top: 18px; border-top: 1px solid var(--borde); }
 .fila-botones.centrada { justify-content: center; }
+
+/* Pantalla de acceso */
+.bienvenida-cuenta { text-align: center; padding-top: 8vh; max-width: 460px; }
+.bienvenida-cuenta h1 { font-family: var(--letra-ui); letter-spacing: .18em; color: var(--verde); font-size: 34px; margin: 14px 0 4px; }
+.bienvenida-cuenta .lema { font-family: var(--letra-lectura-familia); font-size: 20px; color: var(--texto-suave); margin: 0 0 26px; }
+.logo-grande img { border-radius: 22px; box-shadow: var(--sombra); }
+.acciones-acceso { display: grid; gap: 12px; margin: 10px auto 16px; max-width: 340px; }
+.sesiones-abiertas { margin-top: 28px; padding-top: 16px; border-top: 1px solid var(--borde); }
+.sesiones-abiertas h2 { font-size: 16px; color: var(--texto-suave); }
+.sin-red { margin-top: 20px; }

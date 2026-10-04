@@ -9,7 +9,7 @@ async function dispositivo() {
   await ctx.addInitScript((s) => localStorage.setItem('vozi-nube-pruebas', s), SIM);
   const pg = await ctx.newPage();
   pg.errores = []; pg.on('pageerror', (e) => pg.errores.push(e.message));
-  await pg.goto(BASE + 'index.html'); await pg.waitForFunction(() => window.__voziListo, null, { timeout: 30000 });
+  await pg.goto(BASE + 'index.html');
   return { ctx, pg };
 }
 const esperar = (pg, ms) => pg.waitForTimeout(ms);
@@ -28,26 +28,31 @@ async function formulario(pg, email, pass, crear) {
 }
 const docsDe = (pg) => pg.evaluate(async () => (await window.__vozi.db.all('docs')).map((d) => d.title).sort());
 
-// Dispositivo A: tiene un documento local, crea la cuenta y lo sube
+// Dispositivo A: lo primero que aparece es el acceso (no entra a la app sin cuenta)
 const A = await dispositivo();
-await A.pg.evaluate(async () => { await window.__vozi.db.put('docs', { id: 'dA', title: 'Caso del iPhone', createdAt: Date.now(), updatedAt: Date.now(), source: { type: 'texto' }, pages: 0, paragraphs: [{ id: 'a1', text: 'Hola desde el iPhone.', page: null, kind: 'p' }] }); });
-await abrirCuenta(A.pg);
-await A.pg.click('#sec-sesiones button:has-text("Entrar o crear cuenta")');
-await formulario(A.pg, 'alberto@ejemplo.com', 'corta', true); await esperar(A.pg, 400);
+await A.pg.waitForSelector('.bienvenida-cuenta', { timeout: 20000 });
+ok('Al abrir aparece primero Iniciar sesión / Crear cuenta', !(await A.pg.evaluate(() => window.__voziListo)) && !!(await A.pg.$('button:has-text("Iniciar sesión")')));
+await A.pg.click('.bienvenida-cuenta button:has-text("Crear cuenta")');
+await formulario(A.pg, 'alberto@ejemplo.com', 'corta', false); await esperar(A.pg, 400);
 ok('Contraseña corta rechazada con mensaje claro', /8 caracteres/.test(await aviso(A.pg)));
 await formulario(A.pg, 'alberto@ejemplo.com', 'ClaveSegura2026', false);
+await A.pg.waitForFunction(() => window.__voziListo, null, { timeout: 30000 });
+await A.pg.evaluate(async () => { await window.__vozi.db.put('docs', { id: 'dA', title: 'Caso del iPhone', createdAt: Date.now(), updatedAt: Date.now(), source: { type: 'texto' }, pages: 0, paragraphs: [{ id: 'a1', text: 'Hola desde el iPhone.', page: null, kind: 'p' }] }); });
 await A.pg.waitForFunction(() => document.querySelector('#perfilBtn').classList.contains('con-nube'), null, { timeout: 15000 });
 await A.pg.evaluate(() => import('./js/nube.js').then((N) => N.sincronizar()));
-ok('Cuenta creada y sesión conectada (A)', true, await A.pg.$eval('#sec-sesiones .caja-destacada', (e) => e.textContent.slice(0, 60)));
+ok('Cuenta creada y sesión conectada (A)', true);
+await A.pg.reload();
+await A.pg.waitForFunction(() => window.__voziListo, null, { timeout: 30000 });
+ok('Con sesión abierta, al reabrir entra directo', !(await A.pg.$('.bienvenida-cuenta')));
 
-// Dispositivo B: entra con la misma cuenta y recibe la biblioteca
+// Dispositivo B: inicia sesión con la misma cuenta y recibe la biblioteca
 const B = await dispositivo();
-await abrirCuenta(B.pg);
-await B.pg.click('#sec-sesiones button:has-text("Entrar o crear cuenta")');
+await B.pg.waitForSelector('.bienvenida-cuenta', { timeout: 20000 });
+await B.pg.click('.bienvenida-cuenta button:has-text("Iniciar sesión")');
 await formulario(B.pg, 'alberto@ejemplo.com', 'equivocada1', false); await esperar(B.pg, 500);
 ok('Contraseña incorrecta: mensaje claro', /incorrectos/.test(await aviso(B.pg)), await aviso(B.pg));
 await formulario(B.pg, 'alberto@ejemplo.com', 'ClaveSegura2026', false);
-await B.pg.waitForFunction(() => document.querySelector('#perfilBtn').classList.contains('con-nube'), null, { timeout: 15000 });
+await B.pg.waitForFunction(() => window.__voziListo, null, { timeout: 30000 });
 await B.pg.evaluate(() => import('./js/nube.js').then((N) => N.sincronizar()));
 ok('El otro dispositivo recibe la biblioteca', (await docsDe(B.pg)).includes('Caso del iPhone'), JSON.stringify(await docsDe(B.pg)));
 
@@ -76,9 +81,8 @@ ok('Borrar un documento se refleja en el otro dispositivo (con sus notas)', !(aw
 
 // Aislamiento: otra persona con su propia cuenta no ve nada de Alberto
 const C = await dispositivo();
-await C.pg.evaluate(() => { sessionStorage.setItem('vozi-elegir', '1'); location.reload(); });
-await C.pg.waitForSelector('.selector-perfiles', { timeout: 20000 });
-await C.pg.click('button:has-text("Crear cuenta")');
+await C.pg.waitForSelector('.bienvenida-cuenta', { timeout: 20000 });
+await C.pg.click('.bienvenida-cuenta button:has-text("Crear cuenta")');
 await formulario(C.pg, 'ana@ejemplo.com', 'OtraClave2026', false);
 await C.pg.waitForFunction(() => window.__voziListo, null, { timeout: 30000 });
 await C.pg.evaluate(() => import('./js/nube.js').then((N) => N.sincronizar()));
@@ -90,14 +94,17 @@ await B.pg.reload(); await B.pg.waitForFunction(() => window.__voziListo, null, 
 await esperar(B.pg, 800);
 ok('La sesión de la cuenta se mantiene al reabrir', await B.pg.evaluate(() => document.querySelector('#perfilBtn').classList.contains('con-nube')));
 
-// Cerrar sesión borrando la copia local
+// Cerrar sesión (conservando la copia): vuelve a la pantalla de acceso; al entrar de nuevo, todo está
+await B.pg.evaluate(async () => { await window.__vozi.db.put('docs', { id: 'dB', title: 'Lectura del iPad', createdAt: Date.now(), updatedAt: Date.now(), source: { type: 'texto' }, pages: 0, paragraphs: [{ id: 'b1', text: 'Hola.', page: null, kind: 'p' }] }); });
 await abrirCuenta(B.pg);
 await B.pg.click('#sec-sesiones button:has-text("Cerrar sesión")');
-await B.pg.click('.dialogo .boton.peligro');
-await B.pg.waitForFunction(() => window.__voziListo, null, { timeout: 30000 }).catch(() => {});
-await esperar(B.pg, 1500);
-const enSelector = !!(await B.pg.$('.selector-perfiles'));
-ok('Cerrar sesión y borrar la copia del dispositivo', enSelector || !(await B.pg.evaluate(() => window.__vozi && window.__vozi.ctx.perfil.cuenta)));
+await B.pg.click('.dialogo .boton.primario:has-text("Cerrar sesión")');
+await B.pg.waitForSelector('.bienvenida-cuenta', { timeout: 20000 });
+ok('Cerrar sesión lleva a la pantalla de acceso', true);
+await B.pg.click('.bienvenida-cuenta button:has-text("Iniciar sesión")');
+await formulario(B.pg, 'alberto@ejemplo.com', 'ClaveSegura2026', false);
+await B.pg.waitForFunction(() => window.__voziListo, null, { timeout: 30000 });
+ok('Al volver a entrar, la copia local está lista', (await docsDe(B.pg)).includes('Lectura del iPad'));
 const errs = [...A.pg.errores, ...B.pg.errores, ...C.pg.errores];
 ok('Sin errores de página', errs.length === 0, errs.join(' | '));
 await b.close();

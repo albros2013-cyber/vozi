@@ -28,6 +28,7 @@ Finalmente, el informe propone tres acciones: fortalecer la capacitación, simpl
 
 const browser = await chromium.launch({ args: ['--autoplay-policy=no-user-gesture-required'] });
 const context = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
+await context.addInitScript(() => localStorage.setItem('vozi-pruebas-local', '1'));
 const page = await context.newPage();
 const errores = [];
 page.on('pageerror', (e) => errores.push(e.message));
@@ -230,7 +231,7 @@ if (quiere('rapida')) {
 }
 
 // 5c) Sesiones de usuario independientes
-if (quiere('sesiones')) {
+if (quiere('sesiones-locales')) { // reemplazado por las cuentas (tests/nube.mjs)
   await page.evaluate(async () => { await window.__vozi.db.put('docs', { id: 'dyo', title: 'Documento de Yo', createdAt: Date.now(), updatedAt: Date.now(), source: { type: 'texto' }, pages: 0, paragraphs: [{ id: 'y1', text: 'Hola.', page: null, kind: 'p' }] }); });
   await irA('ajustes');
   await page.click('#sec-sesiones summary');
