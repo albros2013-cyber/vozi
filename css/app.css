@@ -337,3 +337,11 @@ body.eligiendo-perfil .pestanas, body.eligiendo-perfil .reproductor, body.eligie
 .sesiones-abiertas { margin-top: 28px; padding-top: 16px; border-top: 1px solid var(--borde); }
 .sesiones-abiertas h2 { font-size: 16px; color: var(--texto-suave); }
 .sin-red { margin-top: 20px; }
+
+/* ---------- Preparar todo el documento ---------- */
+.rep-todo { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; justify-content: center; font-size: 13px; color: var(--texto-suave); max-width: 760px; margin: 0 auto 6px; }
+.rep-todo[hidden] { display: none; }
+.rep-todo-barra { width: 40px; height: 5px; border-radius: 5px; background: var(--superficie-2); overflow: hidden; display: inline-block; }
+.rep-todo-barra > span { display: block; height: 100%; background: var(--acento); transition: width .3s linear; }
+.nota-error { color: var(--peligro); font-size: 15px; }
+.rep-todo .enlace { padding: 2px 4px; min-height: 0; min-width: 0; font-size: 13px; }

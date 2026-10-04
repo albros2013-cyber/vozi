@@ -184,7 +184,7 @@ function seccionLectura() {
     interruptor('Leer en voz alta las notas al pie', 'leerNotasPie', () => ctx.rep.descargar()),
     h('p', { class: 'nota-suave' }, 'En los PDF, VOZI detecta las notas al pie (letra pequeña al final de la página) y las llamadas de nota (números volados). Siempre se muestran en el texto; por defecto la voz las omite. Encabezados, pies de página repetidos y números de página se quitan al importar.'),
     h('h3', {}, 'Velocidad de preparación'),
-    h('p', { class: 'nota-suave' }, 'Con «Rápida», VOZI usa dos procesos a la vez: prepara el audio casi el doble de rápido en equipos con varios núcleos, pero necesita el doble de memoria (unos 600 MB). Si la app se cierra sola, vuelve a «Normal».'),
+    h('p', { class: 'nota-suave' }, 'Con «Rápida», VOZI usa dos procesos a la vez y prepara el audio casi el doble de rápido (cada proceso ocupa unos 250 MB). «Automática» usa dos procesos y, si la app llegara a cerrarse por falta de memoria, vuelve sola a uno.'),
     opcionesProcesos(),
     h('h3', {}, 'Prueba de rendimiento'),
     pruebaRendimiento());
@@ -193,9 +193,11 @@ function seccionLectura() {
 
 function opcionesProcesos() {
   const g = h('div', { class: 'rejilla-opciones', role: 'radiogroup', 'aria-label': 'Velocidad de preparación' });
-  for (const [n, t] of [[1, 'Normal'], [2, 'Rápida']]) {
-    g.append(h('button', { type: 'button', role: 'radio', 'aria-checked': String((ctx.ajustes.procesos || 1) === n), class: 'opcion' + ((ctx.ajustes.procesos || 1) === n ? ' activa' : ''), onclick: async (e) => {
-      await guardarAjustes({ procesos: n });
+  const actual = ctx.ajustes.paralelo === 1 || ctx.ajustes.paralelo === 2 ? ctx.ajustes.paralelo : 'auto';
+  for (const [n, t] of [['auto', 'Automática'], [1, 'Normal'], [2, 'Rápida']]) {
+    g.append(h('button', { type: 'button', role: 'radio', 'aria-checked': String(actual === n), class: 'opcion' + (actual === n ? ' activa' : ''), onclick: async (e) => {
+      await guardarAjustes({ paralelo: n });
+      try { localStorage.removeItem('vozi-un-proceso'); } catch (err) { /* sin almacenamiento */ }
       ctx.motor.terminar();
       g.querySelectorAll('.opcion').forEach((x) => { x.classList.remove('activa'); x.setAttribute('aria-checked', 'false'); });
       e.currentTarget.classList.add('activa'); e.currentTarget.setAttribute('aria-checked', 'true');
@@ -215,7 +217,7 @@ function pruebaRendimiento() {
       if (!ok) { salida.textContent = `Primero descarga: ${faltan.map((p) => p.title).join(', ')}.`; btn.disabled = false; return; }
       salida.textContent = 'Cargando la voz en memoria…';
       const t0 = performance.now();
-      await ctx.motor.preparar(pack, (m) => { salida.textContent = `Cargando la voz en memoria… ${Math.round((m.progress || 0) * 100)} %`; }, ctx.ajustes.procesos || 1);
+      await ctx.motor.preparar(pack, (m) => { salida.textContent = `Cargando la voz en memoria… ${Math.round((m.progress || 0) * 100)} %`; }, (await import('../lectura.js')).procesosEfectivos());
       const carga = (performance.now() - t0) / 1000;
       salida.textContent = 'Generando audio de prueba…';
       const frases = ['¿Qué factores explican el crecimiento de una empresa?', 'En dos mil veinticinco, las ventas aumentaron treinta y dos por ciento.', 'Sin embargo, la directora advirtió que no podían confiarse.', 'Los estudiantes deberán comparar las alternativas disponibles.'];

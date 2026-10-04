@@ -214,7 +214,7 @@ if (quiere('rapida')) {
   for (const n of [1, 2]) {
     await page.evaluate(async (n) => {
       const { ctx, db } = window.__vozi;
-      ctx.ajustes.procesos = n; ctx.ajustes.primerTramoCorto = false; ctx.ajustes.tramoMin = 1; ctx.motor.terminar(); ctx.rep.descargar();
+      ctx.ajustes.paralelo = n; ctx.ajustes.primerTramoCorto = false; ctx.ajustes.tramoMin = 1; ctx.motor.terminar(); ctx.rep.descargar();
       for (const a of await db.all('audio')) { await db.del('audio', a.id); await db.del('audioBlobs', a.id); }
       if (!ctx.doc) {
         await db.put('docs', { id: 'drap', title: 'Rápida', createdAt: Date.now(), updatedAt: Date.now(), source: { type: 'texto' }, pages: 0,
@@ -224,14 +224,14 @@ if (quiere('rapida')) {
       window.__vozi.L.escucharDesde(0);
     }, n);
     await page.waitForFunction(() => window.__vozi.ctx.rep.reproduciendo, null, { timeout: 600000 });
-    const r = await page.evaluate(() => ({ s: window.__vozi.ctx.rep.tramo.segSintesis, d: window.__vozi.ctx.rep.tramo.duracion }));
-    ok(`Preparación con ${n} proceso(s)`, r.d > 10, `${r.d.toFixed(1)} s de audio en ${r.s.toFixed(1)} s (factor ${(r.s / r.d).toFixed(2)})`);
+    const r = await page.evaluate(() => ({ s: window.__vozi.ctx.rep.tramo.segSintesis, d: window.__vozi.ctx.rep.tramo.duracion, n: window.__vozi.ctx.motor.procesos.length }));
+    ok(`Preparación con ${n} proceso(s)`, r.d > 10 && r.n === n, `${r.d.toFixed(1)} s de audio en ${r.s.toFixed(1)} s (factor ${(r.s / r.d).toFixed(2)})`);
     await page.evaluate(() => window.__vozi.ctx.rep.pausar());
   }
 }
 
 // 5c) Sesiones de usuario independientes
-if (quiere('sesiones-locales')) { // reemplazado por las cuentas (tests/nube.mjs)
+if (fases.includes('sesiones-locales')) { // reemplazado por las cuentas (tests/nube.mjs)
   await page.evaluate(async () => { await window.__vozi.db.put('docs', { id: 'dyo', title: 'Documento de Yo', createdAt: Date.now(), updatedAt: Date.now(), source: { type: 'texto' }, pages: 0, paragraphs: [{ id: 'y1', text: 'Hola.', page: null, kind: 'p' }] }); });
   await irA('ajustes');
   await page.click('#sec-sesiones summary');
@@ -342,6 +342,61 @@ if (quiere('rapidez')) {
   await page.waitForFunction(() => window.__vozi.ctx.rep.reproduciendo, null, { timeout: 60000 });
   ok('Volver a un párrafo con audio guardado es inmediato', (Date.now() - t1) < 2500, `${Date.now() - t1} ms`);
   await page.evaluate(() => window.__vozi.ctx.rep.pausar());
+}
+if (quiere('todo')) {
+  // «Preparar todo el documento»: varios tramos seguidos y luego lectura continua sin sintetizar
+  await page.evaluate(async () => {
+    await window.__vozi.db.put('docs', { id: 'dtodo', title: 'Todo junto', createdAt: Date.now(), updatedAt: Date.now(), source: { type: 'texto' }, pages: 0,
+      paragraphs: Array.from({ length: 9 }, (_, i) => ({ id: 't' + i, text: `Sección ${i + 1}. La empresa revisó sus indicadores y decidió ajustar la estrategia comercial para el siguiente semestre.`, page: null, kind: 'p' })) });
+    window.__vozi.ctx.ajustes.tramoMin = 0.3;
+  });
+  const errs0 = errores.length;
+  await irA('biblioteca'); await page.click('.doc-abrir:has-text("Todo junto")'); await page.waitForSelector('.texto-lectura .parrafo');
+  const est = await page.evaluate(async () => { const e = await window.__vozi.L.estimarTodo({ desdeInicio: true }); return e; });
+  ok('Estimación de tiempo y espacio', est && est.audioSeg > 30 && est.bytes > 1e6, `${Math.round(est.audioSeg)} s de audio · ${(est.bytes / 1e6).toFixed(1)} MB`);
+  const t0 = Date.now();
+  await page.evaluate(() => { window.__vozi.L.prepararTodo({ desdeInicio: true }); });
+  await esperar(2500);
+  const barra = await page.$eval('#repTodo', (e) => !e.hidden && e.textContent);
+  ok('Progreso visible en el reproductor', !!barra, barra || '');
+  await page.waitForFunction(() => !window.__vozi.L.preparacionTodo.activo, null, { timeout: 900000 });
+  const dur = (Date.now() - t0) / 1000;
+  const r = await page.evaluate(async () => {
+    const lista = (await window.__vozi.db.byIndex('audio', 'docId', 'dtodo')).sort((a, b) => a.inicio - b.inicio || (a.desdeOracion || 0) - (b.desdeOracion || 0));
+    return { n: lista.length, tramos: lista.map((a) => [a.inicio, a.desdeOracion || 0, a.fin, a.finS, a.completo]), audio: lista.reduce((s, a) => s + a.duracion, 0), procesos: window.__vozi.ctx.motor.procesos.length, nucleos: navigator.hardwareConcurrency };
+  });
+  let contiguo = r.tramos.length > 0 && r.tramos[0][0] === 0;
+  for (let i = 1; i < r.tramos.length; i++) {
+    const [, , fin, finS, completo] = r.tramos[i - 1];
+    const esperado = completo ? [fin + 1, 0] : [fin, finS + 1];
+    if (r.tramos[i][0] !== esperado[0] || r.tramos[i][1] !== esperado[1]) contiguo = false;
+  }
+  const ultimo = r.tramos[r.tramos.length - 1];
+  ok('Prepara todo el documento en tramos contiguos', contiguo && ultimo && ultimo[2] === 8, `${r.n} tramos · ${r.audio.toFixed(0)} s de audio en ${dur.toFixed(0)} s (factor ${(dur / r.audio).toFixed(2)}) · ${r.procesos} procesos, ${r.nucleos} núcleos`);
+  // Escuchar después: todo sale de lo guardado, sin volver a sintetizar
+  const rr = await page.evaluate(async () => {
+    const V = window.__vozi; let llamadas = 0;
+    const orig = V.ctx.motor.sintetizar.bind(V.ctx.motor);
+    V.ctx.motor.sintetizar = (...a) => { llamadas++; return orig(...a); };
+    V.ctx.rep.descargar();
+    const t = performance.now();
+    await V.L.escucharDesde(0);
+    const primera = performance.now() - t;
+    const vistos = [V.ctx.rep.tramo.inicio];
+    for (let i = 0; i < 20; i++) {
+      const antes = V.ctx.rep.tramo;
+      const t1 = performance.now();
+      await V.L.alTerminarTramo();
+      if (V.ctx.rep.tramo === antes) break;
+      vistos.push(V.ctx.rep.tramo.inicio + ':' + Math.round(performance.now() - t1) + 'ms');
+    }
+    V.ctx.rep.pausar();
+    V.ctx.motor.sintetizar = orig;
+    return { llamadas, primera, vistos };
+  });
+  ok('Lectura continua sin preparar de nuevo', rr.llamadas === 0 && rr.vistos.length === r.n, `primera voz ${Math.round(rr.primera)} ms · tramos ${rr.vistos.join(', ')} · síntesis nuevas: ${rr.llamadas}`);
+  ok('Sin errores en «Preparar todo»', errores.length === errs0, errores.slice(errs0).join(' | '));
+  await page.evaluate(() => { window.__vozi.ctx.ajustes.tramoMin = 5; });
 }
 if (quiere('notas')) {
   await importarArchivo(FIX + 'notas.pdf');

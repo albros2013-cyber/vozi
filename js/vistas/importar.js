@@ -23,7 +23,7 @@ export async function vistaImportar(main, opciones = {}) {
       tarjeta('✎', 'Pegar texto', 'Escribe o pega y edita', () => pegarTexto(main))),
     h('div', { class: 'aviso-ocr ' + (ocrOk ? 'ok' : 'falta') },
       h('strong', {}, 'Reconocimiento de texto (OCR): '),
-      ocrOk ? 'listo para usar sin conexión.' : 'aún no está descargado. Es necesario para fotos y PDF escaneados en español e inglés (32 MB).',
+      ocrOk ? 'listo para usar sin conexión.' : 'aún no está descargado. Es necesario para fotos y PDF escaneados en español e inglés (unos 10 MB).',
       ocrOk ? null : h('button', { class: 'enlace', onclick: () => ir('ajustes', { seccion: 'recursos' }) }, 'Descargar ahora')),
     h('p', { class: 'nota-suave' }, 'El OCR extrae el texto escrito en una imagen. No describe fotografías ni interpreta gráficos, tablas complejas o fórmulas: revisa siempre el texto reconocido.'));
   main.append(cont);
@@ -146,7 +146,7 @@ async function flujoPdf(main, file) {
 // ---------- Imágenes y cámara ----------
 async function importarImagenes(main, camara) {
   if (!(await ocrListo())) {
-    if (await confirmar('Para leer el texto de imágenes necesitas descargar el reconocimiento de texto (16 MB, una sola vez).', { si: 'Ir a descargar' })) ir('ajustes', { seccion: 'recursos' });
+    if (await confirmar('Para leer el texto de imágenes necesitas descargar el reconocimiento de texto (unos 10 MB, una sola vez).', { si: 'Ir a descargar' })) ir('ajustes', { seccion: 'recursos' });
     return;
   }
   const files = await elegirArchivo({ accept: 'image/*', multiple: !camara, capture: camara ? 'environment' : null });

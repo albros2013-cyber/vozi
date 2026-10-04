@@ -68,12 +68,13 @@ def main(selected):
             files += [(s, f'{vid}/{fs}') for s, fs in espeak_es(f'{d}/espeak-ng-data')]
             packs.append(pack('voz-' + vid, '1', title, desc, files, engine='piper', sampleRate=22050))
     if 'ocr' in selected:
-        packs.append(pack('ocr-spa', 'best-4.1-es-en', 'Reconocimiento de texto en español e inglés (OCR)',
+        F = os.path.join(M, 'tessdata_fast')  # modelos «fast»: unas 2-3 veces más rápidos y 5 veces más livianos
+        packs.append(pack('ocr-spa', 'fast-4.1-es-en', 'Reconocimiento de texto en español e inglés (OCR)',
             'Datos de Tesseract para leer fotos y páginas escaneadas.',
-            [(os.path.join(M, 'spa.traineddata'), 'spa.traineddata'), (os.path.join(M, 'eng.traineddata'), 'eng.traineddata')], engine='ocr'))
+            [(os.path.join(F, 'spa.traineddata'), 'spa.traineddata'), (os.path.join(F, 'eng.traineddata'), 'eng.traineddata')], engine='ocr'))
     if 'motor' in selected:
         fl = [add_direct('vendor/sherpa/' + n) for n in ['sherpa-onnx-wasm-main-tts.js', 'sherpa-onnx-tts.js', 'sherpa-onnx-wasm-main-tts.wasm']]
-        packs.append({'id': 'motor-voz', 'version': 'sherpa-onnx-1.13.8', 'title': 'Motor de voz',
+        packs.append({'id': 'motor-voz', 'version': 'sherpa-onnx-1.13.8-mem64', 'title': 'Motor de voz',
                       'description': 'Programa que convierte el texto en audio dentro del dispositivo.', 'files': fl,
                       'size': sum(f['size'] for f in fl), 'engine': 'motor', 'license': 'Apache-2.0'})
         fl = [add_direct('vendor/tesseract/' + n) for n in ['tesseract-core-simd-lstm.js', 'tesseract-core-simd-lstm.wasm']]

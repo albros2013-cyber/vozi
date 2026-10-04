@@ -5,10 +5,10 @@ import * as P from './perfiles.js';
 import * as N from './nube.js';
 import { dialogoCuenta, dialogoNuevaPassword, textoEstadoSync } from './vistas/cuenta.js';
 import { quitarFragmentos } from './tts/segmenter.js';
-import { MotorVoz } from './tts/engine.js';
+import { MotorVoz, revisarCierreInesperado } from './tts/engine.js';
 import { Reproductor } from './player.js';
 import * as L from './lectura.js';
-import { aviso, dialogo, h, formatoTiempo, confirmar } from './ui.js';
+import { aviso, dialogo, h, formatoTiempo, formatoRestante, duracionCorta, confirmar } from './ui.js';
 import { vozPorId } from './voices.js';
 import { vistaBiblioteca } from './vistas/biblioteca.js';
 import { vistaImportar } from './vistas/importar.js';
@@ -179,6 +179,7 @@ function configurarReproductor() {
   L.eventos.addEventListener('preparacion', () => actualizarReproductor());
   L.eventos.addEventListener('siguiente', () => actualizarReproductor());
   L.eventos.addEventListener('esperando', () => actualizarReproductor());
+  L.eventos.addEventListener('todo', () => actualizarTodo());
   L.eventos.addEventListener('tramo', () => { actualizarReproductor(); actualizarAccionesLeer(); });
   L.eventos.addEventListener('objetivo', (e) => resaltarPosicion(e.detail, { forzarScroll: false }));
   L.eventos.addEventListener('faltaVoz', (e) => L.avisoFaltaVoz(e.detail || [], (sec) => ir('ajustes', { seccion: sec })));
@@ -216,6 +217,48 @@ function fijarVelocidad(v) {
   actualizarReproductor();
 }
 
+// Línea de progreso de «Preparar todo el documento» sobre el reproductor
+function actualizarTodo() {
+  const t = L.preparacionTodo, el = $('repTodo');
+  const visible = t.activo && ctx.doc && t.docId === ctx.doc.id;
+  el.hidden = !visible;
+  el.innerHTML = '';
+  if (!visible) return;
+  const pct = Math.round((t.fraccion || 0) * 100);
+  el.append(
+    h('span', { class: 'rep-todo-barra', 'aria-hidden': 'true' }, h('span', { style: `width:${pct}%` })),
+    h('span', {}, `Preparando todo · ${pct} %` + (t.restanteSeg != null ? ` · faltan ~${duracionCorta(t.restanteSeg)}` : '')),
+    h('button', { class: 'enlace', onclick: () => L.detenerTodo() }, 'Detener'));
+}
+
+function formatoMB(bytes) { return bytes >= 1e9 ? (bytes / 1e9).toFixed(1).replace('.', ',') + ' GB' : Math.max(1, Math.round(bytes / 1e6)) + ' MB'; }
+
+async function dialogoPrepararTodo() {
+  const e = await L.estimarTodo({});
+  if (!e) return;
+  const e0 = await L.estimarTodo({ desdeInicio: true });
+  const poco = e.libre != null && e.libre < e.bytes * 1.2;
+  const r = await dialogo({
+    titulo: 'Preparar todo el documento',
+    contenido: h('div', {},
+      h('p', {}, 'VOZI genera ahora el audio de todo lo que falta y lo guarda. Después lo escuchas de corrido, sin pausas entre párrafos y sin conexión.'),
+      h('ul', {},
+        h('li', {}, `Audio por preparar desde donde vas: ${duracionCorta(e.audioSeg)} aprox.`),
+        h('li', {}, `Tiempo de preparación en este dispositivo: ${duracionCorta(e.prepSeg)} aprox.${e.medido ? '' : ' (se ajusta al medir)'}`),
+        h('li', {}, `Espacio necesario: ${formatoMB(e.bytes)} aprox.`)),
+      poco ? h('p', { class: 'nota-error' }, `Puede que no haya espacio suficiente (libre: ${formatoMB(e.libre)}). Borra audios en Ajustes → Almacenamiento.`) : null,
+      h('p', { class: 'nota-suave' }, 'Mantén VOZI abierta: la pantalla se queda encendida mientras prepara. Puedes escuchar al mismo tiempo; lo ya preparado se aprovecha al instante. Lo preparado se conserva si lo detienes.'),
+      e0 && e0.audioSeg > e.audioSeg + 30 ? h('p', { class: 'nota-suave' }, `Desde el principio serían ${duracionCorta(e0.audioSeg)} de audio (${formatoMB(e0.bytes)}).`) : null),
+    botones: [
+      { texto: 'Ahora no', valor: null },
+      e0 && e0.audioSeg > e.audioSeg + 30 ? { texto: 'Desde el principio', valor: 'inicio' } : null,
+      { texto: 'Preparar desde donde voy', valor: 'aqui', clase: 'primario' },
+    ].filter(Boolean),
+  });
+  if (!r) return;
+  L.prepararTodo({ desdeInicio: r === 'inicio' });
+}
+
 async function menuReproductor() {
   const rep = ctx.rep;
   const accion = (fn) => () => { document.getElementById('dialogo').close(); fn(); };
@@ -227,6 +270,9 @@ async function menuReproductor() {
       h('button', { type: 'button', class: 'accion', onclick: accion(() => rep.parrafo(-1)) }, '⇤ Párrafo anterior'),
       h('button', { type: 'button', class: 'accion', onclick: accion(() => rep.parrafo(1)) }, '⇥ Párrafo siguiente'),
       h('button', { type: 'button', class: 'accion', onclick: accion(() => ir('ajustes', { seccion: 'voz' })) }, '🎙 Cambiar voz o duración del tramo'),
+      L.preparacionTodo.activo
+        ? h('button', { type: 'button', class: 'accion peligro', onclick: accion(() => L.detenerTodo()) }, '✕ Detener «Preparar todo el documento»')
+        : h('button', { type: 'button', class: 'accion', onclick: accion(() => dialogoPrepararTodo()) }, '⚡ Preparar todo el documento (escuchar sin pausas)'),
       L.estadoLectura.preparando ? h('button', { type: 'button', class: 'accion peligro', onclick: accion(() => L.cancelarPreparacion()) }, '✕ Cancelar preparación') : null,
     ),
     botones: [{ texto: 'Cerrar', valor: null }],
@@ -425,6 +471,7 @@ async function alRecibirCambios(cambios) {
 
 async function iniciar() {
   let perfil;
+  if (revisarCierreInesperado()) setTimeout(() => aviso('VOZI se cerró mientras preparaba audio con dos procesos. Para cuidar la memoria ahora usa uno solo (puedes cambiarlo en Ajustes → Lectura).', { ms: 9000 }), 1500);
   // Enlaces de los correos de la cuenta (confirmación o nueva contraseña)
   const enlace = N.leerEnlaceDeCorreo();
   let recuperacion = null;
@@ -473,6 +520,7 @@ async function iniciar() {
   if (recuperacion) setTimeout(() => dialogoNuevaPassword(recuperacion), 600);
   matchMedia('(prefers-color-scheme: dark)').addEventListener('change', aplicarTema);
   ctx.motor = new MotorVoz();
+  ctx.motor.onDegradado = () => aviso('Uno de los procesos de voz se quedó sin memoria; VOZI sigue con uno solo.', { ms: 6000 });
   ctx.rep = new Reproductor();
   ctx.rep.setVelocidad(ctx.ajustes.velocidad || 1);
   configurarReproductor();

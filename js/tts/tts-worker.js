@@ -12,6 +12,7 @@ let tts = null;
 let cancelled = new Set();
 let queue = Promise.resolve();
 
+function memoriaMB() { try { return Math.round(self.wasmMemory.buffer.byteLength / 1048576); } catch (e) { return null; } }
 function post(msg, transfer) { self.postMessage(msg, transfer || []); }
 
 async function leerArchivo(cache, urls, nombre, onBytes) {
@@ -94,7 +95,7 @@ async function init({ engineBase, cacheName, voice }) {
     }
     delete datos[nombre];
   }
-  post({ type: 'ready', sampleRate: tts.sampleRate, numSpeakers: tts.numSpeakers, initMs: performance.now() - t0 });
+  post({ type: 'ready', sampleRate: tts.sampleRate, numSpeakers: tts.numSpeakers, initMs: performance.now() - t0, memMB: memoriaMB() });
 }
 
 // Recorta silencio inicial y final (umbral relativo) dejando un margen pequeño
@@ -191,7 +192,7 @@ async function synth(msg) {
     // Ceder el control para poder recibir "cancel"
     await new Promise((r) => setTimeout(r, 0));
   }
-  post({ type: 'done', jobId, elapsedMs: performance.now() - t0, audioSeg });
+  post({ type: 'done', jobId, elapsedMs: performance.now() - t0, audioSeg, memMB: memoriaMB() });
 }
 
 self.onmessage = (e) => {

@@ -1,0 +1,17 @@
+<!doctype html><meta charset="utf-8"><body><pre id="log"></pre><script type="module">
+// Banco de pruebas de OCR: compara modelos (best/fast) y tamaños de página
+const log=(m)=>{document.getElementById('log').textContent+=m+'\n'; console.log(m)};
+const q=new URLSearchParams(location.search); const modelo=q.get('modelo')||'fast'; const imgs=(q.get('imgs')||'esc-1.png,esc-2.png,foto.png').split(',');
+const base=new URL('../vendor/tesseract/',location.href).href; const dir=new URL('out/ocrb/',location.href).href;
+function nuevo(){ const w=new Worker('../js/import/ocr-worker.js'); return new Promise((res,rej)=>{ w.onmessage=(e)=>{ if(e.data.type==='ready')res(w); else if(e.data.type==='error')rej(new Error(e.data.message)); };
+  w.postMessage({type:'init',base,cacheName:null,datos:['spa','eng'].map(l=>({nombre:l+'.traineddata',urls:[dir+modelo+'/'+l+'.traineddata']}))}); }); }
+function ocr(w,id,png){ return new Promise((res)=>{ w.onmessage=(e)=>{ if(e.data.type==='result'&&e.data.id===id)res(e.data); if(e.data.type==='error')res({texto:'ERR '+e.data.message,confianza:0}); }; w.postMessage({type:'ocr',id,png},[png]); }); }
+const par=+(q.get('par')||1); const reps=+(q.get('reps')||1);
+const t0=performance.now(); const ws=[]; for(let i=0;i<par;i++) ws.push(await nuevo()); log(`init ${modelo} x${par} ${((performance.now()-t0)/1000).toFixed(1)}s`);
+const lista=[]; for(let r=0;r<reps;r++) lista.push(...imgs);
+const out={}; const datos=await Promise.all(lista.map(async n=>(await fetch(dir+n)).arrayBuffer()));
+const t1=performance.now(); let k=0;
+await Promise.all(ws.map(async (w,wi)=>{ while(k<lista.length){ const i=k++; const t=performance.now(); const r=await ocr(w,i+1,datos[i]); out[lista[i]]={texto:r.texto,conf:r.confianza,seg:(performance.now()-t)/1000}; } }));
+log(`TOTAL ${lista.length} páginas ${((performance.now()-t1)/1000).toFixed(1)}s`);
+window.__out=out; window.__done=true;
+</script>

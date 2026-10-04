@@ -69,9 +69,19 @@ PDF de prueba con 2 notas por página (una de dos líneas) y llamadas voladas: l
 
 Probado contra un servidor que imita Supabase (el entorno de pruebas no puede conectarse al Supabase real): crear cuenta, contraseña corta/incorrecta con mensajes claros, sincronización de biblioteca y notas entre dos dispositivos, cambios sin conexión que se suben al volver, borrados que se propagan, aislamiento entre cuentas, sesión que se mantiene al reabrir y cierre de sesión con borrado local. 12/12. **Pendiente: primera prueba con el Supabase real desde el iPhone.**
 
+## 2g. Velocidad de procesamiento (añadido)
+
+Medido en Chromium con 2 núcleos (el iPhone tiene 6, así que allí debería rendir igual o mejor):
+- **Motor de voz:** la memoria inicial del motor bajó de 512 MB a 64 MB por proceso (crece solo si hace falta; en la prueba usó unos 230 MB con la voz natural y 190 MB con las ligeras). El audio generado es idéntico.
+- **Dos procesos por defecto («Automática»):** el primero empieza a hablar y el segundo se suma al cargar. Factor de preparación 0,94 → 0,55 (casi el doble de rápido). Primera voz en 11,4 s (antes 13,9 s). Si la app se cierra preparando con dos procesos, al reabrir pasa sola a uno y lo avisa; si un proceso falla, el trabajo sigue en el otro.
+- **Preparar todo el documento** (menú ••• del reproductor): 5 tramos contiguos, 84 s de audio en 44 s. Después, la lectura continua pasó por los 5 tramos sin sintetizar nada (cada salto entre tramos: 20-40 ms). Muestra tiempo y espacio estimados, mantiene la pantalla encendida, se puede detener y conserva lo hecho.
+- **OCR:** modelos «tessdata_fast» (6 MB en vez de 29 MB) y dos páginas a la vez. 10 páginas escaneadas: 15,8 s → 4,6 s. Precisión en los documentos de prueba: 0 % de error de caracteres (antes 0-0,4 %). En fotos muy malas, «fast» puede fallar algo más que el modelo anterior.
+- Regresión completa: todas las fases superadas; cuentas en la nube 15/15.
+
 ## 3. Pendiente de verificar en iPhone/iPad (no probado)
 
-- Que Safari reserve la memoria del motor (512 MB iniciales por proceso). En equipos con poca memoria podría fallar; la voz ligera usa la misma reserva. Corregirlo exige recompilar sherpa-onnx con menos memoria inicial.
+- Que dos procesos de voz quepan en la memoria del iPhone (unos 250 MB cada uno). Si no, VOZI vuelve sola a uno.
+- Que la pantalla se mantenga encendida durante «Preparar todo el documento» (Wake Lock, iOS 16.4 o posterior).
 - Velocidad real de preparación (usar *Ajustes → Lectura → Prueba de rendimiento*).
 - Reproducción con pantalla bloqueada y controles en la pantalla de bloqueo: el audio de un tramo ya preparado debería seguir; la preparación del siguiente tramo puede pausarse cuando la app pasa a segundo plano.
 - Desbloqueo de audio: el primer toque en ▶ desbloquea el reproductor; si iOS lo bloquea, VOZI muestra un aviso para tocar ▶ de nuevo.

@@ -18,7 +18,7 @@ try {
 
 export const APP_URL = 'https://albros2013-cyber.github.io/vozi/';
 const TABLA = 'vozi_items';
-const LOCALES = ['rtf', 'procesos', 'cps']; // ajustes propios de cada dispositivo: no se sincronizan
+const LOCALES = ['rtf', 'procesos', 'paralelo', 'cps']; // ajustes propios de cada dispositivo: no se sincronizan
 
 // ---------- Errores en lenguaje claro ----------
 function mensajeError(status, cuerpo) {

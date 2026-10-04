@@ -75,7 +75,16 @@ export function formatoRestante(seg) {
   if (seg == null || !isFinite(seg)) return 'calculando…';
   if (seg < 50) return 'menos de un minuto';
   const m = Math.round(seg / 60);
+  if (m >= 90) return `alrededor de ${duracionCorta(seg)}`;
   return m === 1 ? 'alrededor de 1 minuto' : `alrededor de ${m} minutos`;
+}
+
+// «45 min», «2 h 10 min»
+export function duracionCorta(seg) {
+  const m = Math.max(1, Math.round(seg / 60));
+  if (m < 60) return `${m} min`;
+  const hh = Math.floor(m / 60), mm = m % 60;
+  return mm ? `${hh} h ${mm} min` : `${hh} h`;
 }
 
 export function fecha(ts) {

@@ -62,12 +62,24 @@ function cancelarSiguiente() {
   est.siguiente = null;
 }
 
+// Cuántos procesos de síntesis usar. «auto» usa dos (casi el doble de rápido) salvo que el equipo
+// tenga un solo núcleo, poca memoria, o la app se haya cerrado antes mientras preparaba con dos.
+export function procesosEfectivos() {
+  const p = ctx.ajustes.paralelo;
+  if (p === 1 || p === 2) return p;
+  try { if (localStorage.getItem('vozi-un-proceso') === '1') return 1; } catch (e) { /* sin almacenamiento */ }
+  const nucleos = navigator.hardwareConcurrency || 2;
+  const memoria = navigator.deviceMemory; // no existe en Safari
+  if (nucleos < 2 || (memoria && memoria < 3)) return 1;
+  return 2;
+}
+
 async function asegurarMotor(pack, alEstado) {
-  return ctx.motor.preparar(pack, (m) => alEstado && alEstado(m), Math.max(1, Math.min(2, ctx.ajustes.procesos || 1)));
+  return ctx.motor.preparar(pack, (m) => alEstado && alEstado(m), procesosEfectivos());
 }
 
 // Prepara un tramo (o lo recupera si ya estaba guardado)
-async function obtenerTramo(doc, inicioIdx, minutos, { visible, signal, onPlan, desdeOracion = 0, rapido = false }) {
+async function obtenerTramo(doc, inicioIdx, minutos, { visible, signal, onPlan, onProgreso, desdeOracion = 0, rapido = false }) {
   const propio = visible ? est.preparando : null;
   const actualizar = (cambios) => {
     if (!propio) return;
@@ -87,7 +99,8 @@ async function obtenerTramo(doc, inicioIdx, minutos, { visible, signal, onPlan, 
   if (guardado) return guardado;
   if (onPlan) onPlan(plan);
   const progreso = (p) => {
-    if (visible) actualizar(p);
+    if (onProgreso) onProgreso(p);
+    else if (visible) actualizar(p);
     else if (est.siguiente) {
       est.siguiente.fraccion = p.fraccion; emitir('siguiente', est.siguiente);
       if (est.siguiente.visible && est.preparando && est.preparando.deFondo) { Object.assign(est.preparando, p); emitir('preparacion', est.preparando); }
@@ -112,13 +125,28 @@ async function obtenerTramo(doc, inicioIdx, minutos, { visible, signal, onPlan, 
   return rec;
 }
 
+// ¿El audio guardado se hizo con la voz y opciones actuales?
+function audioCompatible(a) {
+  const vozEs = ctx.ajustes.vozId, vozEn = ctx.ajustes.vozIdEn || 'en-emma';
+  return a.parrafos && a.parrafosHash && a.tiempos
+    && (a.vozEsId || String(a.vozId).split('+')[0]) === vozEs && (!a.vozEnId || a.vozEnId === vozEn)
+    && (a.numSteps || 5) === (ctx.ajustes.numSteps || 5) && !!a.notasPie === !!ctx.ajustes.leerNotasPie;
+}
+
 // Busca un tramo ya preparado que CONTENGA el párrafo (no solo que empiece en él) y siga válido
 async function tramoGuardadoQueContiene(doc, pid) {
   const lista = await db.byIndex('audio', 'docId', doc.id);
-  const vozEs = ctx.ajustes.vozId, vozEn = ctx.ajustes.vozIdEn || 'en-emma';
-  const candidatos = lista.filter((a) => a.parrafos && a.parrafos.includes(pid) && a.parrafosHash && a.tiempos && a.tiempos.some((t) => t.pid === pid && t.s === 0)
-    && (a.vozEsId || String(a.vozId).split('+')[0]) === vozEs && (!a.vozEnId || a.vozEnId === vozEn)
-    && (a.numSteps || 5) === (ctx.ajustes.numSteps || 5) && !!a.notasPie === !!ctx.ajustes.leerNotasPie)
+  const candidatos = lista.filter((a) => audioCompatible(a) && a.parrafos.includes(pid) && a.tiempos.some((t) => t.pid === pid && t.s === 0))
+    .sort((x, y) => y.creado - x.creado);
+  for (const a of candidatos) if (hashParrafos(doc, a.parrafos) === a.parrafosHash) return a;
+  return null;
+}
+
+// Busca un tramo ya preparado que EMPIECE exactamente en (párrafo, oración): así la lectura continua
+// aprovecha lo que dejó listo «Preparar todo el documento», aunque los cortes sean distintos.
+async function tramoGuardadoQueEmpieza(doc, p, s = 0) {
+  const lista = await db.byIndex('audio', 'docId', doc.id);
+  const candidatos = lista.filter((a) => a.inicio === p && (a.desdeOracion || 0) === s && audioCompatible(a))
     .sort((x, y) => y.creado - x.creado);
   for (const a of candidatos) if (hashParrafos(doc, a.parrafos) === a.parrafosHash) return a;
   return null;
@@ -204,7 +232,7 @@ export async function precalentar() {
     if (!ctx.doc || ctx.motor.listo) return;
     const { ok, pack } = await vozLista();
     if (!ok) return;
-    await ctx.motor.preparar(pack, null, Math.max(1, Math.min(2, ctx.ajustes.procesos || 1)));
+    await ctx.motor.preparar(pack, null, procesosEfectivos());
     // Preparar ya el comienzo en el punto guardado: al tocar ▶ suena casi de inmediato
     const doc = ctx.doc;
     if (!doc || ctx.rep.tramo || est.preparando || est.siguiente) return;
@@ -243,7 +271,20 @@ function programarSiguiente(rec) {
   const rtf = Math.max(0.25, ctx.ajustes.rtf || 1);
   const minutos = Math.max(0.5, Math.min(ctx.ajustes.tramoMin, (rec.duracion * 0.85) / rtf / 60));
   // Mientras el dispositivo no sea mucho más rápido que el tiempo real, los tramos se cortan entre oraciones
-  sig.promesa = obtenerTramo(doc, desde, minutos, { visible: false, signal: abort.signal, desdeOracion: desdeS, rapido: rtf > 0.6, onPlan: (p) => { sig.parrafos = p.parrafos; sig.desdeS = desdeS; } })
+  sig.desdeS = desdeS;
+  sig.promesa = (async () => {
+    // 1) Ya preparado (p. ej. por «Preparar todo el documento») → sin volver a sintetizar
+    const listo = await tramoGuardadoQueEmpieza(doc, desde, desdeS).catch(() => null);
+    if (listo) { sig.parrafos = listo.parrafos; return listo; }
+    // 2) Lo está preparando ahora mismo «Preparar todo» → esperar ese mismo trabajo
+    if (todo.activo && todo.docId === doc.id && todo.actual && todo.actual.clave === clave) {
+      sig.parrafos = todo.actual.parrafos;
+      const r = await todo.actual.promesa.catch(() => null);
+      if (r) return r;
+    }
+    if (abort.signal.aborted) return null;
+    return obtenerTramo(doc, desde, minutos, { visible: false, signal: abort.signal, desdeOracion: desdeS, rapido: rtf > 0.6, onPlan: (p) => { sig.parrafos = p.parrafos; } });
+  })()
     .then((r) => { sig.rec = r; emitir('siguiente', sig); return r; })
     .catch((e) => { if (e.name !== 'AbortError') console.warn('Siguiente tramo:', e); sig.error = e; emitir('siguiente', sig); return null; });
   est.siguiente = sig;
@@ -273,6 +314,7 @@ export async function alTerminarTramo() {
     } else rec = est.siguiente.rec;
     est.siguiente = null;
   }
+  if (!rec) rec = await tramoGuardadoQueEmpieza(doc, desde, desdeS).catch(() => null);
   if (!rec) { await escucharDesde(desde, { desdeOracion: desdeS }); return; }
   if (ctx.doc !== doc) return;
   await ctx.rep.cargar(rec, 0);
@@ -318,12 +360,115 @@ export async function restaurarPosicion(doc) {
 }
 
 export function soltarDocumento() {
+  detenerTodo();
   cancelarPreparacion();
   cancelarSiguiente();
   guardarPosicion();
   ctx.rep.pausar();
   ctx.rep.descargar();
   est.posicion = null;
+}
+
+// ---------- Preparar todo el documento ----------
+// Genera de una vez el audio de lo que falta, tramo a tramo, y lo guarda. Después se escucha
+// de corrido sin esperas (y sin conexión). Mantiene la pantalla encendida mientras trabaja,
+// porque iOS pausa la app con la pantalla apagada.
+const todo = { activo: false, abort: null, docId: null, fraccion: 0, restanteSeg: null, tramos: 0, actual: null, wake: null };
+export const preparacionTodo = todo;
+const BYTES_POR_SEG = 24000 * 2; // WAV mono 16 bits a 24 kHz
+
+function caracteresLeibles(doc, desde) {
+  let n = 0;
+  for (let i = Math.max(0, desde); i < doc.paragraphs.length; i++) {
+    const p = doc.paragraphs[i];
+    if (p.kind === 'pie' && !ctx.ajustes.leerNotasPie) continue;
+    n += (p.text || '').length;
+  }
+  return n;
+}
+
+async function puntoDePartida(doc, desdeInicio) {
+  if (desdeInicio) return { p: 0, s: 0 };
+  if (ctx.rep.tramo && ctx.rep.tramo.docId === doc.id) return siguientePos(ctx.rep.tramo);
+  const pr = await db.get('progress', doc.id);
+  const i = pr ? indicePorPid(doc, pr.pid) : 0;
+  return { p: Math.max(0, i), s: 0 };
+}
+
+// Cuánto audio falta, cuánto tardaría y cuánto ocuparía
+export async function estimarTodo({ desdeInicio = false } = {}) {
+  const doc = ctx.doc;
+  if (!doc) return null;
+  const pos = await puntoDePartida(doc, desdeInicio);
+  const audioSeg = caracteresLeibles(doc, pos.p) / Math.max(5, ctx.ajustes.cps || 14);
+  const rtf = ctx.ajustes.rtf || 1;
+  let libre = null;
+  try { const e = await navigator.storage.estimate(); if (e.quota) libre = e.quota - (e.usage || 0); } catch (e) { /* sin estimación */ }
+  return { audioSeg, prepSeg: audioSeg * rtf, bytes: audioSeg * BYTES_POR_SEG, libre, medido: !!ctx.ajustes.rtf };
+}
+
+async function mantenerPantalla() {
+  try { if ('wakeLock' in navigator && todo.activo && (!todo.wake || todo.wake.released)) todo.wake = await navigator.wakeLock.request('screen'); } catch (e) { /* no disponible */ }
+}
+if (typeof document !== 'undefined') document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') mantenerPantalla(); });
+
+export function detenerTodo() { if (todo.activo && todo.abort) todo.abort.abort(); }
+
+export async function prepararTodo({ desdeInicio = false } = {}) {
+  const doc = ctx.doc;
+  if (!doc || todo.activo) return;
+  let pos = await puntoDePartida(doc, desdeInicio);
+  const abort = new AbortController();
+  const total = Math.max(1, caracteresLeibles(doc, pos.p));
+  const t0 = performance.now();
+  Object.assign(todo, { activo: true, abort, docId: doc.id, fraccion: 0, restanteSeg: null, tramos: 0, actual: null });
+  emitir('todo', todo);
+  await mantenerPantalla();
+  const avance = (dentro, largoTramo) => {
+    const hecho = total - caracteresLeibles(doc, pos.p) + dentro * largoTramo;
+    todo.fraccion = Math.min(0.999, Math.max(0, hecho / total));
+    const seg = (performance.now() - t0) / 1000;
+    todo.restanteSeg = todo.fraccion > 0.02 && seg > 8 ? seg * (1 - todo.fraccion) / todo.fraccion
+      : (caracteresLeibles(doc, pos.p) / Math.max(5, ctx.ajustes.cps || 14)) * (ctx.ajustes.rtf || 1);
+    emitir('todo', todo);
+  };
+  let fallo = null;
+  try {
+    while (pos.p < doc.paragraphs.length && !abort.signal.aborted && ctx.doc === doc) {
+      const clave = pos.p + ':' + pos.s;
+      let rec = await tramoGuardadoQueEmpieza(doc, pos.p, pos.s);
+      // El tramo siguiente de la lectura continua ya se está preparando aquí → reutilizarlo
+      const sig = est.siguiente;
+      if (!rec && sig && sig.docId === doc.id && sig.desde === clave) rec = await sig.promesa;
+      if (!rec) {
+        const restante = caracteresLeibles(doc, pos.p);
+        const largo = Math.min(restante, (ctx.ajustes.tramoMin || 5) * 60 * (ctx.ajustes.cps || 14));
+        const actual = { clave, parrafos: null };
+        actual.promesa = obtenerTramo(doc, pos.p, ctx.ajustes.tramoMin || 5, {
+          visible: false, signal: abort.signal, desdeOracion: pos.s, rapido: false,
+          onPlan: (p) => { actual.parrafos = p.parrafos; },
+          onProgreso: (p) => avance(p.fraccion || 0, largo),
+        });
+        todo.actual = actual;
+        try { rec = await actual.promesa; } finally { todo.actual = null; }
+      }
+      if (!rec) break; // no queda texto para leer
+      todo.tramos++;
+      const sigPos = siguientePos(rec);
+      if (sigPos.p < pos.p || (sigPos.p === pos.p && sigPos.s <= pos.s)) break; // salvaguarda
+      pos = sigPos;
+      avance(0, 0);
+    }
+  } catch (e) { fallo = e; }
+  const cancelado = abort.signal.aborted || (fallo && fallo.name === 'AbortError');
+  const completo = !fallo && !cancelado && pos.p >= doc.paragraphs.length;
+  Object.assign(todo, { activo: false, abort: null, actual: null, fraccion: completo ? 1 : todo.fraccion });
+  try { if (todo.wake) await todo.wake.release(); } catch (e) { /* nada */ }
+  todo.wake = null;
+  emitir('todo', todo);
+  if (completo || (!fallo && !cancelado)) aviso('Documento preparado: ya puedes escucharlo de corrido, incluso sin conexión.', { ms: 6000 });
+  else if (cancelado) aviso('Preparación del documento detenida. Lo ya preparado se conserva.');
+  else manejarError(fallo);
 }
 
 export function textoEstadoPreparacion(p) {

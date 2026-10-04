@@ -1,7 +1,7 @@
 // VOZI — Importación de PDF: extracción del texto digital y OCR de páginas escaneadas.
 import * as pdfjsLib from '../../vendor/pdfjs/pdf.mjs';
 import { juntar, unirLineas, reconstruirParrafos, quitarFragmentos } from '../tts/segmenter.js';
-import { reconocer, dibujarGris, canvasAPng } from './ocr.js';
+import { reconocer, dibujarGris, canvasAPng, paralelosOcr } from './ocr.js';
 import { uid } from '../db.js';
 import { LIMITE_ARCHIVO } from './textos.js';
 
@@ -199,11 +199,20 @@ export async function importarPdf(abierto, { desde = 1, hasta, forzarOcr = false
   if (necesitanOcr.length && !ocrListo) {
     for (const p of necesitanOcr) sinOcr.push(p.n);
   } else {
-    let i = 0;
+    // Dos páginas a la vez cuando el equipo lo permite: mientras una se reconoce, se dibuja la siguiente
+    const limite = paralelosOcr();
+    const n = necesitanOcr.length;
+    let hechos = 0, iniciadas = 0;
+    const parcial = new Map();
+    const informar = (pagina) => {
+      let suma = hechos; for (const f of parcial.values()) suma += f;
+      onProgreso && onProgreso({ pagina, total, fase: 'ocr', fraccion: forzarOcr ? 0.1 + 0.9 * suma / n : 0.5 + 0.5 * suma / n, ocrIndice: Math.min(n, hechos + 1), ocrTotal: n, ocrHechas: hechos });
+    };
+    const enCurso = new Set();
     for (const p of necesitanOcr) {
       if (signal && signal.aborted) throw abortado();
-      const base = 0.5 + (i / necesitanOcr.length) * 0.5;
-      onProgreso && onProgreso({ pagina: p.n, total, fase: 'ocr', fraccion: forzarOcr ? 0.1 + 0.9 * i / necesitanOcr.length : base, ocrIndice: i + 1, ocrTotal: necesitanOcr.length });
+      const k = ++iniciadas;
+      informar(p.n);
       const vp1 = p.page.getViewport({ scale: 1 });
       const escala = Math.min(3, Math.max(1.5, 2200 / vp1.width));
       const vp = p.page.getViewport({ scale: escala });
@@ -216,12 +225,14 @@ export async function importarPdf(abierto, { desde = 1, hasta, forzarOcr = false
       canvas.width = canvas.height = 0;
       const png = await canvasAPng(gris);
       gris.width = gris.height = 0;
-      const r = await reconocer(png, (f) => {
-        onProgreso && onProgreso({ pagina: p.n, total, fase: 'ocr', fraccion: (forzarOcr ? 0.1 + 0.9 * (i + f) / necesitanOcr.length : 0.5 + 0.5 * (i + f) / necesitanOcr.length), ocrIndice: i + 1, ocrTotal: necesitanOcr.length });
-      }, signal);
-      p.ocr = { texto: r.texto, confianza: r.confianza };
-      i++;
+      const tarea = reconocer(png, (f) => { parcial.set(k, f); informar(p.n); }, signal)
+        .then((r) => { p.ocr = { texto: r.texto, confianza: r.confianza }; parcial.delete(k); hechos++; informar(p.n); });
+      tarea.catch(() => {}); // el error se atiende abajo; evita avisos de promesa sin manejar
+      enCurso.add(tarea);
+      tarea.finally(() => enCurso.delete(tarea)).catch(() => {});
+      if (enCurso.size >= limite) await Promise.race(enCurso);
     }
+    await Promise.all(enCurso);
   }
   // En páginas reconocidas con OCR: primeras y últimas líneas repetidas entre páginas
   const margenesOcr = new Map();
