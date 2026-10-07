@@ -479,6 +479,82 @@ if (quiere('actualizar-motor')) {
   });
   ok('Actualizar el motor reemplaza la copia vieja sin error de integridad', !r.error && r.instalado && r.tam > 1e6, JSON.stringify(r));
 }
+if (quiere('cuadros')) {
+  // Cuadros: se detectan con filas y columnas y se leen en orden; la IA puede interpretarlos antes
+  const errs0 = errores.length;
+  // Los PDF de prueba sin tablas no deben tener «cuadros» falsos
+  const falsos = await page.evaluate(async (fix) => {
+    const { abrirPdf, importarPdf } = await import('./js/import/pdf.js');
+    const out = {};
+    for (const n of ['digital.pdf', 'notas.pdf', 'encabezados.pdf', 'sello.pdf']) {
+      const b = await (await fetch('/tests/fixtures/' + n)).blob();
+      const ab = await abrirPdf(new File([b], n));
+      out[n] = (await importarPdf(ab, {})).tablas;
+    }
+    return out;
+  });
+  ok('Cuadros: sin cuadros falsos en documentos normales', Object.values(falsos).every((x) => x === 0), JSON.stringify(falsos));
+  await importarArchivo(FIX + 'tablas.pdf');
+  await page.waitForSelector('button:has-text("Importar")', { timeout: 30000 });
+  await page.click('.vista button.primario:has-text("Importar")');
+  await page.waitForSelector('.vista-revision', { timeout: 120000 });
+  const aviso1 = await page.$$eval('.vista-revision .aviso-ocr', (e) => e.map((x) => x.textContent).join(' '));
+  await page.click('button:has-text("Guardar en la biblioteca")');
+  await page.waitForSelector('.texto-lectura .parrafo');
+  const r = await page.evaluate(async () => {
+    const d = window.__vozi.ctx.doc;
+    const t = d.paragraphs.find((p) => p.kind === 'tabla');
+    const { planificarTramo } = await import('./js/tts/tramos.js');
+    const plan = planificarTramo(d, 0, 10, 13.5, [], { cuadros: 'ambos' });
+    return { kinds: d.paragraphs.map((p) => p.kind).join(','), tabla: t && t.tabla, texto: t && t.text,
+      voz: plan.items.filter((i) => t && i.pid === t.id).map((i) => i.text), html: !!document.querySelector('.tabla-doc table tbody tr') };
+  });
+  fs.writeFileSync(OUT + '/cuadros.json', JSON.stringify(r, null, 1));
+  ok('Cuadros: tabla del PDF detectada con filas y columnas', r.tabla && r.tabla.filas.length === 5 && r.tabla.filas[0].length === 4 && r.kinds === 'p,tabla,p', `${r.kinds} · ${r.tabla && r.tabla.filas.map((f) => f.join('|')).join(' / ')}`);
+  ok('Cuadros: título del cuadro reconocido', r.tabla && /^Tabla 1/.test(r.tabla.titulo), r.tabla && r.tabla.titulo);
+  ok('Cuadros: lectura ordenada fila por fila con columnas', r.voz.length === 6 && /^Tabla uno: consumo/i.test(r.voz[0]) && /^Residencial: consumo en gigavatios hora, mil doscientos cincuenta; variación, seis coma cinco por ciento/.test(r.voz[2]), r.voz.slice(0, 3).join(' ‖ '));
+  ok('Cuadros: se muestran como tabla y se avisa al importar', r.html && /cuadro/.test(aviso1), aviso1.slice(0, 90));
+  // Resaltado de la fila en lectura
+  const fila = await page.evaluate(async () => {
+    const { resaltarPosicion } = await import('./js/vistas/leer.js');
+    const t = window.__vozi.ctx.doc.paragraphs.find((p) => p.kind === 'tabla');
+    resaltarPosicion({ pid: t.id, s: 3 }, {});
+    const tr = document.querySelector('.tabla-doc tbody tr.fila-activa');
+    return tr ? tr.textContent : null;
+  });
+  ok('Cuadros: resalta la fila que se está leyendo', /^Comercial/.test(fila || ''), fila || '');
+  // DOCX con tabla
+  const dx = await page.evaluate(async () => {
+    const { importarDocx } = await import('./js/import/textos.js');
+    const b = await (await fetch('/tests/fixtures/tablas.docx')).blob();
+    const r = await importarDocx(new File([b], 'tablas.docx'));
+    const t = r.paragraphs.find((p) => p.kind === 'tabla');
+    return { kinds: r.paragraphs.map((p) => p.kind).join(','), titulo: t && t.tabla.titulo, filas: t && t.tabla.filas.length };
+  });
+  ok('Cuadros: tabla de Word detectada con su título', dx.kinds === 'p,tabla,p' && /^Tabla 1/.test(dx.titulo) && dx.filas === 5, JSON.stringify(dx));
+  // Interpretación con IA (motor simulado) y lectura de la interpretación antes de las filas
+  await page.evaluate(() => localStorage.setItem('vozi-ia-simulada', '1'));
+  await page.click('button[aria-label="Asistente de estudio con IA"]');
+  await page.waitForSelector('.panel-ia, .dialogo button:has-text("Descargar")');
+  if (await page.$('.dialogo button:has-text("Descargar")')) await page.click('.dialogo button:has-text("Descargar")');
+  await page.waitForSelector('.panel-ia');
+  await page.click('.panel-ia button:has-text("Interpretar cuadros")');
+  await page.waitForFunction(() => /interpretados/.test(document.querySelector('.ia-estado')?.textContent || ''), null, { timeout: 30000 });
+  await page.click('.dialogo button:has-text("Cerrar")');
+  const ri = await page.evaluate(async () => {
+    const d = window.__vozi.ctx.doc;
+    const t = d.paragraphs.find((p) => p.kind === 'tabla');
+    const guardado = (await window.__vozi.db.get('docs', d.id)).paragraphs.find((p) => p.kind === 'tabla').interpretacion;
+    const { planificarTramo } = await import('./js/tts/tramos.js');
+    const voz = planificarTramo(d, 0, 10, 13.5, [], { cuadros: 'ambos' }).items.filter((i) => i.pid === t.id).map((i) => i.text);
+    const solo = planificarTramo(d, 0, 10, 13.5, [], { cuadros: 'interpretacion' }).items.filter((i) => i.pid === t.id).map((i) => i.text);
+    return { guardado, voz, solo, visible: document.querySelector('.tabla-interp')?.textContent || '' };
+  });
+  ok('Cuadros: la IA interpreta el cuadro y se guarda', !!ri.guardado && /Interpretación/.test(ri.visible), ri.guardado);
+  ok('Cuadros: la voz dice primero la interpretación y luego las filas', /^Interpretación del cuadro/.test(ri.voz[0]) && ri.voz.some((x) => /^Residencial/.test(x)) && !ri.solo.some((x) => /^Residencial/.test(x)), `${ri.voz.length} partes; solo interpretación: ${ri.solo.length}`);
+  await page.evaluate(() => localStorage.removeItem('vozi-ia-simulada'));
+  ok('Cuadros: sin errores', errores.length === errs0, errores.slice(errs0).join(' | '));
+}
 if (quiere('corte')) {
   // Si el tramo actual termina antes de que el siguiente esté listo, se entrega ya lo que haya
   await page.evaluate(async () => {

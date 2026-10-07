@@ -5,8 +5,9 @@ import { normalizar } from './normalize-es.js';
 import { normalizarEn } from './normalize-en.js';
 import { dividirOraciones, partirLarga } from './segmenter.js';
 import { db, uid } from '../db.js';
+import { textoVozTabla } from '../tablas.js';
 
-export const PAUSAS = { parte: 0.12, oracion: 0.3, parrafo: 0.75, titulo: 0.9 };
+export const PAUSAS = { parte: 0.12, oracion: 0.3, fila: 0.45, parrafo: 0.75, titulo: 0.9 };
 const MAX_GRUPO = 220;
 
 // Hash corto (FNV-1a) para detectar cambios de texto
@@ -18,7 +19,7 @@ export function hashTexto(s) {
 
 // Planifica un tramo a partir del párrafo `inicio`. Termina en un final de párrafo cuando
 // la duración estimada alcanza `minutos`.
-export function planificarTramo(doc, inicio, minutos, cps, diccionario, { leerNotasPie = false, idiomas = null, desdeOracion = 0, rapido = false } = {}) {
+export function planificarTramo(doc, inicio, minutos, cps, diccionario, { leerNotasPie = false, idiomas = null, desdeOracion = 0, rapido = false, cuadros = 'ambos' } = {}) {
   // rapido: inicio inmediato — la primera unidad es una sola oración y el tramo puede cortarse
   // entre oraciones (no solo al final de un párrafo).
   const objetivo = minutos * 60;
@@ -29,7 +30,9 @@ export function planificarTramo(doc, inicio, minutos, cps, diccionario, { leerNo
     const p = doc.paragraphs[i];
     if (!p.text.trim()) continue;
     if (p.kind === 'pie' && !leerNotasPie) continue; // notas al pie: se muestran, la voz las omite
-    const oraciones = dividirOraciones(p.text);
+    // Cuadros: interpretación (si hay) y/o fila por fila, en lugar del texto suelto
+    const fuente = p.kind === 'tabla' ? textoVozTabla(p, cuadros).texto : p.text;
+    const oraciones = dividirOraciones(fuente);
     const lang = (idiomas && idiomas[i]) || 'es';
     // Fluidez: las oraciones cortas consecutivas se sintetizan juntas (hasta ~220 caracteres),
     // para que la voz enlace la entonación entre ellas como lo haría una persona.
@@ -38,10 +41,10 @@ export function planificarTramo(doc, inicio, minutos, cps, diccionario, { leerNo
     const cerrarGrupo = () => { if (grupo) unidades.push(grupo); grupo = null; };
     oraciones.forEach((o, si) => {
       if (i === inicio && si < desdeOracion) return;
-      const original = p.text.slice(o.start, o.end);
+      const original = fuente.slice(o.start, o.end);
       const dicho = lang === 'en' ? normalizarEn(original, { diccionario }) : normalizar(original, { diccionario });
       if (!dicho.trim()) return;
-      if (dicho.length > MAX_GRUPO || p.kind === 'h') { // los títulos no se agrupan: conservan su pausa
+      if (dicho.length > MAX_GRUPO || p.kind === 'h' || p.kind === 'tabla') { // títulos y filas de cuadros no se agrupan: conservan su pausa
         cerrarGrupo();
         const partes = partirLarga(dicho, 280);
         partes.forEach((t, pi) => unidades.push({ text: t, oraciones: [{ s: si, n: t.length }], s: si, pi, ultimaParte: pi === partes.length - 1 }));
@@ -62,7 +65,7 @@ export function planificarTramo(doc, inicio, minutos, cps, diccionario, { leerNo
     for (let ui = 0; ui < unidades.length; ui++) {
       const u = unidades[ui];
       const ultima = ui === unidades.length - 1;
-      const pausa = ultima ? (p.kind === 'h' ? PAUSAS.titulo : PAUSAS.parrafo) : (u.ultimaParte ? PAUSAS.oracion : PAUSAS.parte);
+      const pausa = ultima ? (p.kind === 'h' || p.kind === 'tabla' ? PAUSAS.titulo : PAUSAS.parrafo) : (u.ultimaParte ? (p.kind === 'tabla' ? PAUSAS.fila : PAUSAS.oracion) : PAUSAS.parte);
       items.push({ id: `${p.id}|${u.s}|${u.pi}`, pid: p.id, pidx: i, s: u.s, oraciones: u.oraciones, text: u.text, pausa, lang });
       est += u.text.length / cps + pausa;
       finS = u.oraciones[u.oraciones.length - 1].s;
@@ -79,7 +82,7 @@ export function planificarTramo(doc, inicio, minutos, cps, diccionario, { leerNo
 
 export function hashParrafos(doc, ids) {
   const mapa = new Map(doc.paragraphs.map((p) => [p.id, p]));
-  return hashTexto(ids.map((id) => { const p = mapa.get(id); return p ? p.kind + ':' + p.text : '∅'; }).join('\n') + '|' + (doc.idioma || 'auto'));
+  return hashTexto(ids.map((id) => { const p = mapa.get(id); return p ? p.kind + ':' + p.text + (p.interpretacion ? '|' + p.interpretacion : '') : '∅'; }).join('\n') + '|' + (doc.idioma || 'auto'));
 }
 
 export function claveTramo(doc, plan, voz, ajustes) {

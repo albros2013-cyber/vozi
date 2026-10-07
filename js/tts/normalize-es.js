@@ -190,7 +190,7 @@ const UNIDADES_MEDIDA = {
   'cm²': ['centímetro cuadrado', 'centímetros cuadrados'], 'cm³': ['centímetro cúbico', 'centímetros cúbicos'],
   lb: ['libra', 'libras'], oz: ['onza', 'onzas'], 'm/s': ['metro por segundo', 'metros por segundo'],
   '"': ['pulgada', 'pulgadas'], 'pulg.': ['pulgada', 'pulgadas'], kB: ['kilobyte', 'kilobytes'], Mbps: ['megabit por segundo', 'megabits por segundo'],
-  ms: ['milisegundo', 'milisegundos'], mmHg: ['milímetro de mercurio', 'milímetros de mercurio'],
+  GWh: ['gigavatio hora', 'gigavatios hora'], GW: ['gigavatio', 'gigavatios'], ms: ['milisegundo', 'milisegundos'], mmHg: ['milímetro de mercurio', 'milímetros de mercurio'],
 };
 
 // Letras deletreadas (siglas), como se dicen en Colombia
@@ -352,6 +352,14 @@ export function normalizar(texto, opciones = {}) {
 
   // Rangos numéricos 2020-2025, 10–15 ("entre X y Y", "de X a Y")
   t = t.replace(/(\bentre\s+)?\b(\d+)\s?[–—-]\s?(\d+)\b/gi, (_, entre, a, b) => entre ? `${entre}${a} y ${b}` : `${a} a ${b}`);
+
+  // Unidades entre paréntesis en encabezados: «Consumo (GWh)» → «consumo en gigavatios hora»
+  t = t.replace(/\s?\((%|[A-Za-zΩ°²³/]{1,6})\)/g, (m, u) => {
+    if (u === '%') return ' en porcentaje';
+    if (/^(COP|USD|US\$|EUR)$/.test(u)) return ' en ' + ({ COP: 'pesos', USD: 'dólares', EUR: 'euros' }[u] || 'dólares');
+    if (/^[A-Za-z]$/.test(u) && !/^[VW]$/.test(u)) return m; // «(a)», «(A)»: incisos, no unidades
+    return UNIDADES_MEDIDA[u] ? ' en ' + UNIDADES_MEDIDA[u][1] : m;
+  });
 
   // Unidades de medida tras cifras
   const unidades = Object.keys(UNIDADES_MEDIDA).sort((a, b) => b.length - a.length).map(escRe).join('|');

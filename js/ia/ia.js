@@ -308,6 +308,41 @@ export async function explicarParrafo(doc, idx, { onTexto, signal } = {}) {
   return r.texto;
 }
 
+// ---------- Cuadros: interpretación antes de leer ----------
+export function cuadrosDe(doc) { return doc.paragraphs.filter((p) => p.kind === 'tabla' && p.tabla); }
+export function cuadrosSinInterpretar(doc) { return cuadrosDe(doc).filter((p) => !p.interpretacion); }
+
+export async function interpretarTabla(doc, p, { signal, onTexto } = {}) {
+  const i = doc.paragraphs.indexOf(p);
+  const contexto = doc.paragraphs.slice(Math.max(0, i - 2), i).filter((x) => x.kind !== 'tabla').map((x) => x.text).join('\n').slice(-1200);
+  let md = (await import('../tablas.js')).tablaMarkdown(p);
+  if (md.length > 5000) md = md.slice(0, 5000) + '\n(… el cuadro continúa)';
+  const r = await generar([
+    { role: 'system', content: SISTEMA },
+    { role: 'user', content: `${contexto ? `Texto que acompaña al cuadro:\n${contexto}\n\n` : ''}CUADRO:\n${md}\n\nExplica este cuadro en 2 a 4 oraciones, en español claro y pensado para escucharlo en voz alta: qué muestra, los datos más importantes y la conclusión principal. No uses viñetas, tablas ni símbolos; no inventes datos.` },
+  ], { maxTokens: 260, signal, onTexto });
+  return r.texto.replace(/\s+/g, ' ').replace(/^[-*•]\s*/, '').trim();
+}
+
+// Interpreta todos los cuadros pendientes y los guarda en el documento. onEstado({i, n, texto})
+export async function interpretarCuadros(doc, { onEstado, signal, alGuardar } = {}) {
+  const lista = cuadrosSinInterpretar(doc);
+  let hechos = 0;
+  for (let k = 0; k < lista.length; k++) {
+    if (signal && signal.aborted) break;
+    const p = lista[k];
+    onEstado && onEstado({ i: k + 1, n: lista.length, texto: '' });
+    const t = await interpretarTabla(doc, p, { signal, onTexto: (x) => onEstado && onEstado({ i: k + 1, n: lista.length, texto: x }) });
+    if (!t) continue;
+    p.interpretacion = t;
+    const { db } = await import('../db.js');
+    await db.put('docs', doc);
+    alGuardar && alGuardar(p);
+    hechos++;
+  }
+  return hechos;
+}
+
 // Prueba de velocidad: palabras por segundo
 export async function probarVelocidad() {
   const r = await generar([{ role: 'user', content: 'Explica en un párrafo de unas 80 palabras qué es la fotosíntesis.' }], { maxTokens: 160 });
@@ -338,7 +373,8 @@ class MotorSimulado {
   async _crear({ messages }) {
     const u = messages[messages.length - 1].content;
     let t;
-    if (/preguntas de repaso/.test(u)) t = 'P: ¿Qué factor explica el crecimiento?\nR: La innovación constante.\nP: ¿Qué advirtió la directora?\nR: Que no podían confiarse.\n1. P: ¿Cuándo se intensificó la competencia?\nR: En el segundo semestre.';
+    if (/CUADRO:/.test(u)) t = 'El cuadro compara el consumo de energía por sector. El sector industrial es el mayor consumidor y el residencial creció más que los demás.';
+    else if (/preguntas de repaso/.test(u)) t = 'P: ¿Qué factor explica el crecimiento?\nR: La innovación constante.\nP: ¿Qué advirtió la directora?\nR: Que no podían confiarse.\n1. P: ¿Cuándo se intensificó la competencia?\nR: En el segundo semestre.';
     else if (/PREGUNTA:/.test(u)) t = 'Según el texto (pág. 1), la competencia regional se intensificó en el segundo semestre.';
     else if (/Explica con palabras sencillas/.test(u)) t = 'Este párrafo dice, en pocas palabras, que la empresa creció por varios factores.';
     else if (/Ideas clave/.test(u)) t = '<think></think>El documento analiza el crecimiento de una empresa en un mercado competitivo.\n\nIdeas clave:\n- Las ventas crecieron.\n- La competencia aumentó.';

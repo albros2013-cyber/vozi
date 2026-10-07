@@ -187,12 +187,28 @@ function seccionLectura() {
     interruptor('Desplazar el texto siguiendo la lectura', 'seguirLectura'),
     interruptor('Leer en voz alta las notas al pie', 'leerNotasPie', () => ctx.rep.descargar()),
     h('p', { class: 'nota-suave' }, 'En los PDF, VOZI detecta las notas al pie (letra pequeña al final de la página) y las llamadas de nota (números volados). Siempre se muestran en el texto; por defecto la voz las omite. Encabezados, pies de página repetidos y números de página se quitan al importar.'),
+    h('h3', {}, 'Cuadros y tablas'),
+    h('p', { class: 'nota-suave' }, 'VOZI lee los cuadros fila por fila, diciendo el nombre de cada columna. Si los interpretaste con la IA (✨ al leer), puede decir primero la interpretación.'),
+    opcionesCuadros(),
     h('h3', {}, 'Velocidad de preparación'),
     h('p', { class: 'nota-suave' }, `Cada proceso prepara audio en paralelo y ocupa unos 250 MB. «Automática» usa 3 en equipos de 6 núcleos o más (como el iPhone Pro) y 2 en los demás; si la app llegara a cerrarse por memoria, baja sola uno. Este equipo: ${navigator.hardwareConcurrency || '?'} núcleos.`),
     opcionesProcesos(),
     h('h3', {}, 'Prueba de rendimiento'),
     pruebaRendimiento());
   return cont;
+}
+
+function opcionesCuadros() {
+  const g = h('div', { class: 'rejilla-opciones', role: 'radiogroup', 'aria-label': 'Cómo leer los cuadros' });
+  for (const [c, t] of [['ambos', 'Interpretación y filas'], ['interpretacion', 'Solo interpretación'], ['filas', 'Solo filas']]) {
+    const activa = (ctx.ajustes.cuadros || 'ambos') === c;
+    g.append(h('button', { type: 'button', role: 'radio', 'aria-checked': String(activa), class: 'opcion' + (activa ? ' activa' : ''), onclick: async (e) => {
+      await guardarAjustes({ cuadros: c });
+      g.querySelectorAll('.opcion').forEach((x) => { x.classList.remove('activa'); x.setAttribute('aria-checked', 'false'); });
+      e.currentTarget.classList.add('activa'); e.currentTarget.setAttribute('aria-checked', 'true');
+    } }, t));
+  }
+  return g;
 }
 
 function opcionesCalidad() {

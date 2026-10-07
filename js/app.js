@@ -239,6 +239,13 @@ async function dialogoPrepararTodo() {
   const e0 = await L.estimarTodo({ desdeInicio: true });
   const poco = e.libre != null && e.libre < e.bytes * 1.2;
   const auto = h('input', { type: 'checkbox', checked: true });
+  // Cuadros sin interpretar y la IA ya descargada: ofrecer interpretarlos antes de preparar el audio
+  let IAm = null, pendCuadros = 0;
+  try {
+    const cuadros = ctx.doc.paragraphs.filter((p) => p.kind === 'tabla' && p.tabla && !p.interpretacion).length;
+    if (cuadros) { IAm = await import('./ia/ia.js'); if (await IAm.modeloDescargado()) pendCuadros = cuadros; }
+  } catch (e) { /* sin IA */ }
+  const conIA = h('input', { type: 'checkbox', checked: true });
   const umbral = Math.round(L.umbralEscucha() * 100);
   const r = await dialogo({
     titulo: 'Preparar todo el documento',
@@ -250,6 +257,7 @@ async function dialogoPrepararTodo() {
         h('li', {}, `Espacio necesario: ${formatoMB(e.bytes)} aprox.`)),
       poco ? h('p', { class: 'nota-error' }, `Puede que no haya espacio suficiente (libre: ${formatoMB(e.libre)}). Borra audios en Ajustes → Almacenamiento.`) : null,
       h('p', { class: 'nota-suave' }, 'Mantén VOZI abierta: la pantalla se queda encendida mientras prepara. Puedes escuchar al mismo tiempo; lo ya preparado se aprovecha al instante. Lo preparado se conserva si lo detienes.'),
+      pendCuadros ? h('label', { class: 'fila-check' }, conIA, ` Interpretar primero con la IA los ${pendCuadros} cuadro(s) del documento`) : null,
       h('label', { class: 'fila-check' }, auto, ` Empezar a escuchar sola al ${umbral} % (sin que la lectura alcance a la preparación)`),
       e0 && e0.audioSeg > e.audioSeg + 30 ? h('p', { class: 'nota-suave' }, `Desde el principio serían ${duracionCorta(e0.audioSeg)} de audio (${formatoMB(e0.bytes)}).`) : null),
     botones: [
@@ -260,6 +268,15 @@ async function dialogoPrepararTodo() {
   });
   if (!r) return;
   ctx.rep.desbloquear(); // dentro del toque: permite que el audio arranque solo después (iOS)
+  if (pendCuadros && conIA.checked) {
+    try {
+      const n = await IAm.interpretarCuadros(ctx.doc, {
+        onEstado: (e) => { if (!e.texto) aviso(`Interpretando con IA el cuadro ${e.i} de ${e.n}…`, { ms: 60000 }); },
+        alGuardar: (p) => import('./vistas/leer.js').then((m) => m.repintarTabla(p.id)),
+      });
+      aviso(`${n} cuadro(s) interpretados. Preparando el audio…`);
+    } catch (e) { aviso('No se pudieron interpretar los cuadros: ' + e.message + '. Se leerán fila por fila.', { tipo: 'error', ms: 7000 }); }
+  }
   L.prepararTodo({ desdeInicio: r === 'inicio', autoEscuchar: auto.checked });
 }
 

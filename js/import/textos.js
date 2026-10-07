@@ -2,6 +2,7 @@
 import { reconstruirParrafos } from '../tts/segmenter.js';
 import { leerZip } from '../zip.js';
 import { uid } from '../db.js';
+import { crearParrafoTabla } from '../tablas.js';
 
 export const LIMITE_ARCHIVO = 200 * 1024 * 1024; // 200 MB
 
@@ -70,9 +71,36 @@ export async function importarDocx(file) {
     const t = texto.replace(/\s+/g, ' ').trim();
     if (t) paragraphs.push({ id: uid('p'), text: t, page: pagina, kind: titulo ? 'h' : 'p' });
   };
+  // Tablas de Word: se conservan filas y columnas para leerlas con orden
+  const textoNodo = (n) => {
+    const partes = [];
+    for (const t of n.getElementsByTagNameNS(W, '*')) {
+      if (t.localName === 't') partes.push(t.textContent);
+      else if (t.localName === 'tab' || t.localName === 'br') partes.push(' ');
+      else if (t.localName === 'p' && partes.length) partes.push(' ');
+    }
+    return partes.join('').replace(/\s+/g, ' ').trim();
+  };
+  const procesarTabla = (tbl) => {
+    const filas = [];
+    for (const tr of tbl.childNodes) {
+      if (tr.nodeType !== 1 || tr.localName !== 'tr') continue;
+      const f = [];
+      for (const tc of tr.childNodes) if (tc.nodeType === 1 && tc.localName === 'tc') f.push(textoNodo(tc));
+      if (f.some(Boolean)) filas.push(f);
+    }
+    const nCol = Math.max(0, ...filas.map((f) => f.filter(Boolean).length));
+    if (filas.length < 2 || nCol < 2) return false; // tabla usada solo para maquetar: se lee como texto
+    let titulo = '';
+    const ant = paragraphs[paragraphs.length - 1];
+    if (ant && ant.kind !== 'tabla' && /^(tabla|cuadro|table)\s*(n[.º°o]*\s*)?[\dIVXLC]/i.test(ant.text) && ant.text.length < 160) { titulo = ant.text; paragraphs.pop(); }
+    paragraphs.push({ id: uid('p'), page: pagina, ...crearParrafoTabla({ titulo, filas }) });
+    return true;
+  };
   const recorrerCuerpo = (n) => {
     for (const c of n.childNodes) {
       if (c.nodeType !== 1) continue;
+      if (c.localName === 'tbl' && procesarTabla(c)) continue;
       if (c.localName === 'p') procesarP(c);
       else if (['tbl', 'tr', 'tc', 'sdt', 'sdtContent', 'customXml', 'txbxContent'].includes(c.localName)) recorrerCuerpo(c);
     }

@@ -224,6 +224,10 @@ function vistaRevision(main) {
     cont.append(h('p', { class: 'nota-suave' }, `Idioma detectado: ${det === 'en' ? 'inglés' : 'español'}${mixto ? ' (con partes en ' + (det === 'en' ? 'español' : 'inglés') + ': cada párrafo se leerá con la voz de su idioma)' : ''}.`));
   }
   if (d.encabezados) cont.append(h('p', { class: 'nota-suave' }, `Se omitieron ${d.encabezados} línea(s) de encabezado, pie de página o número de página.`));
+  const nCuadros = (d.paragraphs || []).filter((x) => x.kind === 'tabla').length;
+  if (nCuadros) {
+    cont.append(h('div', { class: 'aviso-ocr ok' }, `Se detectaron ${nCuadros} cuadro(s) o tabla(s). VOZI los leerá en orden, fila por fila con el nombre de cada columna. Con la IA (botón ✨ al leer → «Interpretar cuadros») puede explicarlos antes de leerlos.`));
+  }
   if (d.notasAlPie) {
     cont.append(h('div', { class: 'aviso-ocr ok' }, `Se detectaron ${d.notasAlPie} nota(s) al pie. Se conservan en el texto y la voz las omite (puedes cambiarlo en Ajustes → Lectura, o tocando el párrafo).`));
   }

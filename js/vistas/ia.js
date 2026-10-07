@@ -147,9 +147,27 @@ export async function panelIA() {
   }
 
   campo.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); accionPreguntar(); } });
+  async function accionCuadros() {
+    await ejecutar('Interpretando cuadros', async (signal) => {
+      const n = await IA.interpretarCuadros(doc, { signal,
+        onEstado: (s) => { progreso((s.i - 1) / s.n, `Cuadro ${s.i} de ${s.n}…`); salida.innerHTML = ''; if (s.texto) salida.append(textoAHtml(s.texto)); },
+        alGuardar: (p) => { import('./leer.js').then((m) => m.repintarTabla(p.id)); ctx.rep && ctx.rep.descargar && !ctx.rep.reproduciendo && ctx.rep.descargar(); } });
+      estado.textContent = n ? `${n} cuadro(s) interpretados. Al escuchar, VOZI dirá primero la interpretación y luego las filas.` : 'No había cuadros pendientes.';
+      pintarBotonCuadros();
+    });
+  }
+  const btnCuadros = h('button', { class: 'boton', onclick: () => accionCuadros() });
+  const pintarBotonCuadros = () => {
+    const total = IA.cuadrosDe(doc).length, pend = IA.cuadrosSinInterpretar(doc).length;
+    btnCuadros.hidden = !total;
+    btnCuadros.textContent = pend ? `▦ Interpretar cuadros (${pend})` : `▦ Cuadros interpretados (${total})`;
+    btnCuadros.disabled = !pend;
+  };
+  pintarBotonCuadros();
   botones.append(
     h('button', { class: 'boton', onclick: () => accionResumen() }, '📝 Resumir'),
-    h('button', { class: 'boton', onclick: () => accionPreguntas() }, '🗂 Preguntas de repaso'));
+    h('button', { class: 'boton', onclick: () => accionPreguntas() }, '🗂 Preguntas de repaso'),
+    btnCuadros);
 
   dialogo({
     titulo: 'Asistente de estudio',

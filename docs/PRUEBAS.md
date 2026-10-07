@@ -81,7 +81,7 @@ Medido en Chromium con 2 núcleos (el iPhone tiene 6, así que allí debería re
 - **Calidad de voz** (Ajustes → Voz): Rápida (3 pasos, por defecto), Equilibrada (4) y Natural (5). Transcripción automática de la misma frase con voz femenina y masculina: con 5 y 3 pasos se entiende igual (una sílaba dudosa con 3 pasos en la voz masculina); con 2 pasos se cambian palabras («competencia» → «convidencia»), por eso no se ofrece. Preparación: factor 0,94 → 0,65 con un proceso y 0,55 → 0,39 con dos.
 - **Hasta 3 procesos**: «Automática» usa 3 en equipos de 6 núcleos (iPhone Pro); si la app se cierra por memoria baja uno. En el equipo de prueba (2 núcleos) 3 procesos no aportan, como era de esperar.
 - **Escuchar mientras termina de preparar:** «Preparar todo» puede empezar a sonar sola cuando hay suficiente audio adelantado para que la lectura no alcance a la preparación (umbral calculado con la velocidad medida del equipo, nunca más del 50 %). Prueba: empezó al 20 % desde el primer párrafo y terminó sin errores.
-- Regresión completa: 67/67 fases superadas; cuentas en la nube 16/16.
+- Regresión completa: 78/78 fases superadas; cuentas en la nube 16/16.
 
 ## 2h. Asistente de estudio con IA en el equipo (añadido)
 
@@ -97,6 +97,14 @@ Comparación con transcripción automática, misma voz, antes → después:
 - «< 25 Ω a 60 Hz» → antes «25 o 6.6»; después «menor que 25 ohmios a 60 hercios».
 - «3/4" y un breaker de 20 A… 3φ» → antes «break de 20 APA… 3/5»; después «3/4 de pulgada y un breaker de 20 amperios… 3 fases».
 - «2do. informe» → antes «doso "Informe"»; después «segundo informe».
+
+## 2j. Cuadros y tablas (añadido)
+
+- PDF: las celdas se separan por los huecos horizontales entre columnas; 3 o más filas alineadas forman un cuadro. Se reconoce el título («Tabla 1…», «Cuadro 2…»). Word: las tablas se toman con su estructura.
+- Lectura: título, columnas, y luego una oración por fila con el nombre de cada columna («Residencial: consumo en gigavatios hora, mil doscientos cincuenta; variación, seis coma cinco por ciento…»). Se muestra como tabla y se resalta la fila que suena.
+- IA (✨ → «Interpretar cuadros», o al usar «Preparar todo» si la IA está descargada): explica cada cuadro en 2-4 oraciones; la voz la dice antes de las filas. Ajustes → Lectura → Cuadros: interpretación y filas / solo interpretación / solo filas.
+- Pruebas: sin cuadros falsos en los 4 PDF de prueba sin tablas; tabla de PDF (5×4) y de Word detectadas con título; lectura ordenada; resaltado de fila; interpretación guardada y leída primero (motor de IA simulado). 11/11.
+- Límite: los cuadros que son imágenes (gráficos, tablas escaneadas) no tienen texto con estructura; se leen como texto OCR.
 
 ## 3. Pendiente de verificar en iPhone/iPad (no probado)
 

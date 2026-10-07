@@ -368,3 +368,14 @@ body.eligiendo-perfil .pestanas, body.eligiendo-perfil .reproductor, body.eligie
 .ia-pregunta-hecha { font-weight: 700; margin: 0 0 8px; }
 .ia-acciones-resultado { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 button.voz-ia { width: 100%; text-align: left; background: none; font: inherit; color: inherit; }
+
+/* ---------- Cuadros y tablas ---------- */
+.tabla-doc { margin: 18px 0; padding: 12px; border: 1px solid var(--borde); border-radius: 12px; font-family: system-ui, -apple-system, sans-serif; font-size: 0.82em; line-height: 1.4; }
+.tabla-cap { font-weight: 700; margin-bottom: 8px; color: var(--texto); }
+.tabla-interp { background: var(--acento-suave); border-radius: 8px; padding: 8px 10px; margin-bottom: 10px; }
+.tabla-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.tabla-doc table { border-collapse: collapse; width: 100%; min-width: max-content; }
+.tabla-doc th, .tabla-doc td { border-bottom: 1px solid var(--borde); padding: 6px 10px; text-align: left; vertical-align: top; }
+.tabla-doc th { font-weight: 700; background: var(--superficie-2); }
+.tabla-doc .fila-activa, .tabla-doc tr.fila-activa td { background: var(--resalte-oracion, #DCEBE2); }
+.tabla-doc .tabla-cap.fila-activa, .tabla-doc .tabla-interp.fila-activa { outline: 2px solid var(--verde); }

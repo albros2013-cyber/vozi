@@ -6,6 +6,7 @@ import { h, aviso, dialogo, pedirTexto, icono, confirmar } from '../ui.js';
 import { ir, aplicarTema } from '../app.js';
 import * as L from '../lectura.js';
 import { dividirOraciones } from '../tts/segmenter.js';
+import { textoVozTabla, filaEnPosicion } from '../tablas.js';
 
 let estadoVista = null;
 
@@ -42,6 +43,13 @@ export async function vistaLeer(main, opciones = {}) {
       if (p.page != null && p.page !== pagina) {
         pagina = p.page;
         frag.append(h('div', { class: 'marca-pagina', id: `pag-${p.page}`, 'data-page': p.page }, `Página ${p.page}`, p.ocr ? h('span', { class: 'etiqueta' }, 'OCR') : null));
+      }
+      if (p.kind === 'tabla' && p.tabla) {
+        frag.append(h('div', {
+          class: 'parrafo tabla-doc' + (marcadores.has(p.id) ? ' con-marcador' : '') + (conNotas.has(p.id) ? ' con-nota' : ''),
+          'data-pid': p.id, 'data-idx': i, tabindex: '-1',
+        }, contenidoTabla(p)));
+        return;
       }
       frag.append(h(p.kind === 'h' ? 'h3' : 'p', {
         class: 'parrafo' + (p.kind === 'pie' ? ' es-pie' : '') + (marcadores.has(p.id) ? ' con-marcador' : '') + (conNotas.has(p.id) ? ' con-nota' : ''),
@@ -133,8 +141,31 @@ function marcarActual(pid, s) {
   }
 }
 
+// Cuadro: título, interpretación de la IA (si existe) y la tabla con sus filas y columnas
+export function contenidoTabla(p) {
+  const t = p.tabla;
+  const H = t.encabezado ? t.filas[0] : null;
+  const cuerpo = t.encabezado ? t.filas.slice(1) : t.filas;
+  return [
+    h('div', { class: 'tabla-cap' }, '▦ ', t.titulo || 'Cuadro'),
+    p.interpretacion ? h('div', { class: 'tabla-interp' }, h('strong', {}, '✨ Interpretación (IA): '), p.interpretacion) : null,
+    h('div', { class: 'tabla-scroll' }, h('table', {},
+      H ? h('thead', {}, h('tr', {}, H.map((c) => h('th', {}, c)))) : null,
+      h('tbody', {}, cuerpo.map((f) => h('tr', {}, f.map((c) => h('td', {}, c))))))),
+  ];
+}
+
+// Vuelve a pintar un cuadro (p. ej. tras interpretarlo con la IA)
+export function repintarTabla(pid) {
+  const raiz = (estadoVista && estadoVista.texto) || (ctx.cacheLector && ctx.cacheLector.texto);
+  const el = raiz && raiz.querySelector(`[data-pid="${pid}"]`);
+  const p = ctx.doc && ctx.doc.paragraphs.find((x) => x.id === pid);
+  if (el && p && p.tabla) { el.innerHTML = ''; el.append(...contenidoTabla(p).filter(Boolean)); }
+}
+
 function restaurarParrafo(el) {
   el.removeAttribute('aria-current');
+  if (el.classList.contains('tabla-doc')) { el.querySelectorAll('.fila-activa').forEach((x) => x.classList.remove('fila-activa')); return; }
   if (el.dataset.dividido) {
     const p = ctx.doc.paragraphs[+el.dataset.idx];
     el.textContent = p.text;
@@ -144,6 +175,15 @@ function restaurarParrafo(el) {
 
 function marcarOracion(el, s) {
   const p = ctx.doc.paragraphs[+el.dataset.idx];
+  if (p.kind === 'tabla' && p.tabla) { // resaltar la fila que se está leyendo
+    const { texto, inicioFilas } = textoVozTabla(p, ctx.ajustes.cuadros || 'ambos');
+    const o = dividirOraciones(texto)[s];
+    const r = o ? filaEnPosicion(p, o.start, inicioFilas) : -1;
+    el.querySelectorAll('.fila-activa').forEach((x) => x.classList.remove('fila-activa'));
+    const objetivo = r >= 0 ? el.querySelectorAll('tbody tr')[r] : (el.querySelector('.tabla-interp') && o && o.start < inicioFilas ? el.querySelector('.tabla-interp') : el.querySelector('.tabla-cap'));
+    if (objetivo) { objetivo.classList.add('fila-activa'); if (r >= 0) objetivo.scrollIntoView({ block: 'nearest', inline: 'nearest' }); }
+    return;
+  }
   if (!el.dataset.dividido) {
     const os = dividirOraciones(p.text);
     el.textContent = '';

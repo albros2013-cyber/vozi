@@ -92,7 +92,7 @@ async function obtenerTramo(doc, inicioIdx, minutos, { visible, signal, onPlan, 
     if (est.preparando === propio) emitir('preparacion', propio);
   };
   const plan = planificarTramo(doc, inicioIdx, minutos, ctx.ajustes.cps, ctx.ajustes.diccionario,
-    { leerNotasPie: !!ctx.ajustes.leerNotasPie, idiomas: idiomasDeParrafos(doc), desdeOracion, rapido });
+    { leerNotasPie: !!ctx.ajustes.leerNotasPie, idiomas: idiomasDeParrafos(doc), desdeOracion, rapido, cuadros: ctx.ajustes.cuadros || 'ambos' });
   if (!plan.items.length) return null;
   const { ok, voz, pack, faltan } = await vozLista({ necesitaEn: plan.items.some((x) => x.lang === 'en'), necesitaEs: plan.items.some((x) => x.lang !== 'en') });
   if (!ok) {

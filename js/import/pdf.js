@@ -3,6 +3,7 @@ import * as pdfjsLib from '../../vendor/pdfjs/pdf.mjs';
 import { juntar, unirLineas, reconstruirParrafos, quitarFragmentos } from '../tts/segmenter.js';
 import { reconocer, dibujarGris, canvasAPng, paralelosOcr } from './ocr.js';
 import { uid } from '../db.js';
+import { separarTablas } from '../tablas.js';
 import { LIMITE_ARCHIVO } from './textos.js';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('../../vendor/pdfjs/pdf.worker.mjs', import.meta.url).href;
@@ -56,10 +57,16 @@ async function lineasDePagina(page) {
     // Llamada de nota (número volado pequeño): se conserva como superíndice y la voz la omite
     const volado = cur && it.str && /^\s*[\d*†]{1,3}\s*$/.test(it.str) && h < cur.hmax * 0.8 && y > cur.y + cur.hmax * 0.15 && y - cur.y < cur.hmax * 0.9;
     if (cur && !volado && Math.abs(y - cur.y) > Math.max(h, cur.hmax) * 0.6) cerrar();
-    if (!cur) cur = { x, y, h, text: '', xEnd: x, hmax: h };
+    if (!cur) cur = { x, y, h, text: '', xEnd: x, hmax: h, celdas: [] };
     if (volado) {
       cur.text = cur.text.replace(/\s+$/, '') + aSuperindice(it.str.trim());
+      if (cur.celdas.length) { const c = cur.celdas[cur.celdas.length - 1]; c.text = c.text.replace(/\s+$/, '') + aSuperindice(it.str.trim()); }
       cur.xEnd = x + (it.width || 0);
+      if (it.hasEOL) cerrar();
+      continue;
+    }
+    if (it.str && !it.str.trim()) { // espacio «estirado» de pdf.js: no cuenta como texto (deja ver el hueco entre columnas)
+      if (cur.text && !/\s$/.test(cur.text)) cur.text += ' ';
       if (it.hasEOL) cerrar();
       continue;
     }
@@ -67,13 +74,19 @@ async function lineasDePagina(page) {
       const gap = x - cur.xEnd;
       const necesitaEspacio = cur.text && !/\s$/.test(cur.text) && !/^\s/.test(it.str) && gap > h * 0.12;
       cur.text += (necesitaEspacio ? ' ' : '') + it.str;
+      // Celdas: un espacio horizontal grande separa columnas (tablas)
+      if (it.str.trim()) {
+        const ult = cur.celdas[cur.celdas.length - 1];
+        if (!ult || gap > Math.max(h * 1.1, 4)) cur.celdas.push({ x, text: it.str });
+        else ult.text += (necesitaEspacio ? ' ' : '') + it.str;
+      }
       cur.xEnd = x + (it.width || 0);
       cur.hmax = Math.max(cur.hmax, h);
     }
     if (it.hasEOL) cerrar();
   }
   cerrar();
-  for (const l of lineas) l.text = l.text.replace(/\s+/g, ' ').trim();
+  for (const l of lineas) { l.text = l.text.replace(/\s+/g, ' ').trim(); l.celdas = (l.celdas || []).map((c) => ({ x: c.x, text: c.text.replace(/\s+/g, ' ').trim() })).filter((c) => c.text); }
   // Fragmentos residuales de 1-3 letras en serie (restos de texto vertical) se descartan
   const limpias = quitarFragmentos(lineas.filter((l) => l.text), (l) => l.text);
   return { lineas: limpias, ancho: vp.width, alto: vp.height, girados };
@@ -247,7 +260,12 @@ export async function importarPdf(abierto, { desde = 1, hasta, forzarOcr = false
     let pars;
     if (p.ocr) pars = reconstruirParrafos(omitirEncabezados ? limpiarMargenesOcr(p.ocr.texto, margenesOcr) : p.ocr.texto).map((t) => ({ text: t, kind: 'p', ocr: true }));
     else {
-      pars = parrafosDeLineas(p.lineas.filter((l) => !l.pie), p.ancho);
+      // Cuadros y tablas: se separan con su estructura; el resto se agrupa en párrafos
+      pars = [];
+      for (const b of separarTablas(p.lineas.filter((l) => !l.pie), hCuerpo || 10)) {
+        if (b.tipo === 'tabla') pars.push(b.parrafo);
+        else pars.push(...parrafosDeLineas(b.lineas, p.ancho));
+      }
       // Cada nota al pie empieza en una línea con su llamada
       const pies = [];
       for (const l of p.lineas.filter((x) => x.pie)) {
@@ -266,11 +284,11 @@ export async function importarPdf(abierto, { desde = 1, hasta, forzarOcr = false
         pars.shift();
       }
     }
-    for (const q of pars) paragraphs.push({ id: uid('p'), text: q.text, page: p.n, kind: q.kind, ...(q.ocr ? { ocr: true } : {}) });
+    for (const q of pars) paragraphs.push({ id: uid('p'), text: q.text, page: p.n, kind: q.kind, ...(q.ocr ? { ocr: true } : {}), ...(q.tabla ? { tabla: q.tabla } : {}) });
   }
   const ocrConf = paginas.filter((p) => p.ocr).map((p) => ({ n: p.n, confianza: p.ocr.confianza }));
   for (const p of paginas) p.page.cleanup();
-  return { paragraphs, paginasOcr: ocrConf, paginasSinTexto: sinOcr, desde, hasta, encabezadosOmitidos: omitidas, notasAlPie: paragraphs.filter((x) => x.kind === 'pie').length };
+  return { paragraphs, paginasOcr: ocrConf, paginasSinTexto: sinOcr, desde, hasta, encabezadosOmitidos: omitidas, notasAlPie: paragraphs.filter((x) => x.kind === 'pie').length, tablas: paragraphs.filter((x) => x.kind === 'tabla').length };
 }
 
 function limpiarMargenesOcr(texto, repetidas) {
