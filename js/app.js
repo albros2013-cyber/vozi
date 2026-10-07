@@ -112,11 +112,12 @@ export function actualizarReproductor() {
     $('repBarra').classList.remove('preparando');
     const voz = vozPorId(ctx.ajustes.vozId);
     if (L.estadoLectura.esperandoSiguiente) { const sg = L.estadoLectura.siguiente; estado = 'Preparando la continuación' + (sg && sg.fraccion ? ` · ${Math.round(sg.fraccion * 100)} %` : '') + '…'; }
+    else if (rep.sis) estado = `${L.nombreVozSistema()} · voz del equipo · ${formatoTiempo(rep.tiempo)} / ${formatoTiempo(rep.duracion)}`;
     else if (rep.tramo) {
       const sig = L.estadoLectura.siguiente;
       const extra = sig && !sig.rec && sig.fraccion != null ? ` · siguiente tramo ${Math.round((sig.fraccion || 0) * 100)} %` : (sig && sig.rec ? ' · siguiente tramo listo' : '');
       estado = `${voz.nombre} · ${formatoTiempo(rep.tiempo)} / ${formatoTiempo(rep.duracion)}${extra}`;
-    } else estado = hayDoc ? `${voz.nombre} · toca ▶ para escuchar desde el punto guardado` : '';
+    } else estado = hayDoc ? `${L.usaVozSistema() ? L.nombreVozSistema() : voz.nombre} · toca ▶ para escuchar desde el punto guardado` : '';
   }
   const el = $('repEstado');
   el.innerHTML = '';
@@ -138,9 +139,11 @@ let ultimaActualizacionEstado = 0;
 function configurarReproductor() {
   const rep = ctx.rep;
   $('repPlay').addEventListener('click', async () => {
+    rep.usarSistema = L.usaVozSistema();
     rep.desbloquear();
     if (L.estadoLectura.preparando) return;
     if (rep.reproduciendo) { rep.pausar(); L.guardarPosicion(); return; }
+    if (rep.sis && rep.sis.docId === (ctx.doc && ctx.doc.id) && rep.usarSistema) { rep.reproducir(); return; }
     if (rep.tramo && rep.tramo.docId === (ctx.doc && ctx.doc.id)) { rep.reproducir(); return; }
     const pidx = ctx.vistas.leer && ctx.vistas.leer.parrafoVisible ? ctx.vistas.leer.parrafoVisible() : null;
     const pr = ctx.doc ? await db.get('progress', ctx.doc.id) : null;
@@ -174,6 +177,7 @@ function configurarReproductor() {
     resaltarPosicion(e.detail);
   });
   rep.addEventListener('fin', () => L.alTerminarTramo());
+  rep.addEventListener('finSistema', () => { L.guardarPosicion(); aviso('Llegaste al final del documento.'); });
   rep.addEventListener('error', (e) => aviso(e.detail.mensaje, { tipo: e.detail.bloqueo ? 'info' : 'error', ms: 6000 }));
 
   L.eventos.addEventListener('preparacion', () => actualizarReproductor());
@@ -291,7 +295,7 @@ async function menuReproductor() {
       h('button', { type: 'button', class: 'accion', onclick: accion(() => rep.parrafo(-1)) }, '⇤ Párrafo anterior'),
       h('button', { type: 'button', class: 'accion', onclick: accion(() => rep.parrafo(1)) }, '⇥ Párrafo siguiente'),
       h('button', { type: 'button', class: 'accion', onclick: accion(() => ir('ajustes', { seccion: 'voz' })) }, '🎙 Cambiar voz o duración del tramo'),
-      L.preparacionTodo.activo
+      L.usaVozSistema() ? null : L.preparacionTodo.activo
         ? h('button', { type: 'button', class: 'accion peligro', onclick: accion(() => L.detenerTodo()) }, '✕ Detener «Preparar todo el documento»')
         : h('button', { type: 'button', class: 'accion', onclick: accion(() => dialogoPrepararTodo()) }, '⚡ Preparar todo el documento (escuchar sin pausas)'),
       L.estadoLectura.preparando ? h('button', { type: 'button', class: 'accion peligro', onclick: accion(() => L.cancelarPreparacion()) }, '✕ Cancelar preparación') : null,

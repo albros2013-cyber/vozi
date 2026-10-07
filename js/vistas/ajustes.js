@@ -47,6 +47,8 @@ export async function vistaAjustes(main, opciones = {}) {
 // ---------- Voz ----------
 async function seccionVoz(man) {
   const cont = h('div', {});
+  cont.append(await bloqueMotorVoz());
+  cont.append(h('h3', {}, 'Voces de VOZI'));
   cont.append(h('p', { class: 'nota-suave' }, 'Escucha las muestras (ya incluidas, no requieren descargar nada) y elige una voz. Las voces naturales comparten una sola descarga.'));
   cont.append(h('h3', {}, 'Voz en español'));
   cont.append(await listaVoces(man, VOCES_ES, 'vozId', 'Voz en español'));
@@ -57,6 +59,55 @@ async function seccionVoz(man) {
     h('p', { class: 'nota-suave' }, '«Rápida» prepara el audio casi el doble de rápido que «Natural» y en las pruebas se entiende igual de bien; «Natural» suena un poco más pulida. El audio ya preparado se conserva; la nueva calidad se aplica a lo que falta.'),
     opcionesCalidad());
   cont.append(h('p', { class: 'nota-suave' }, 'Las muestras se generaron con los mismos modelos que usa la app. La calidad final depende del texto. Ninguna voz es humana.'));
+  return cont;
+}
+
+// Elegir entre las voces de VOZI (audio preparado) y las del propio equipo (Siri)
+async function bloqueMotorVoz() {
+  const { hayVozSistema, vocesSistema, vocesDeIdioma, calidadVoz, etiquetaCalidad, vozElegida, probarVoz } = await import('../voz-sistema.js');
+  const cont = h('div', { class: 'bloque-motor' });
+  cont.append(h('h3', {}, 'Qué voces usar'));
+  if (!hayVozSistema()) { cont.append(h('p', { class: 'nota-suave' }, 'Este navegador no ofrece las voces del sistema; se usan las de VOZI.')); return cont; }
+  const g = h('div', { class: 'rejilla-opciones', role: 'radiogroup', 'aria-label': 'Qué voces usar' });
+  const actual = ctx.ajustes.motorVoz === 'sistema' ? 'sistema' : 'vozi';
+  const lista = h('div', {});
+  for (const [m, t] of [['vozi', 'Voces de VOZI'], ['sistema', 'Voces del iPhone/iPad']]) {
+    g.append(h('button', { type: 'button', role: 'radio', 'aria-checked': String(actual === m), class: 'opcion' + (actual === m ? ' activa' : ''), onclick: async (e) => {
+      const boton = e.currentTarget;
+      await guardarAjustes({ motorVoz: m });
+      ctx.rep.descargar(); // al cambiar de motor se empieza de nuevo desde el punto guardado
+      g.querySelectorAll('.opcion').forEach((x) => { x.classList.remove('activa'); x.setAttribute('aria-checked', 'false'); });
+      boton.classList.add('activa'); boton.setAttribute('aria-checked', 'true');
+      lista.hidden = m !== 'sistema';
+    } }, t));
+  }
+  cont.append(g, h('p', { class: 'nota-suave' }, '«Voces de VOZI»: se preparan antes, se guardan y suenan sin conexión, también con la pantalla bloqueada. «Voces del iPhone/iPad»: las de Siri; hablan al instante sin preparar nada, pero no se guardan y pueden detenerse al bloquear la pantalla.'));
+  const voces = await vocesSistema();
+  lista.hidden = actual !== 'sistema';
+  const bloque = (lang, clave, titulo, prueba) => {
+    const vs = vocesDeIdioma(voces, lang);
+    const sel = vozElegida(voces, lang);
+    const caja = h('div', { class: 'lista-voces', role: 'radiogroup', 'aria-label': titulo });
+    if (!vs.length) caja.append(h('p', { class: 'nota-suave' }, 'No hay voces de este idioma en el equipo.'));
+    for (const v of vs.slice(0, 14)) {
+      const activa = sel && sel.voiceURI === v.voiceURI;
+      caja.append(h('label', { class: 'voz' + (activa ? ' activa' : '') },
+        h('input', { type: 'radio', name: 'vs-' + lang, checked: activa, onchange: async () => {
+          await guardarAjustes({ [clave]: v.voiceURI });
+          caja.querySelectorAll('.voz').forEach((x) => x.classList.remove('activa'));
+          caja.querySelectorAll('input').forEach((x, k) => { if (x.checked) caja.querySelectorAll('.voz')[k].classList.add('activa'); });
+          ctx.rep.sis && ctx.rep.descargar();
+        } }),
+        h('span', { class: 'voz-info' }, h('span', { class: 'voz-nombre' }, v.name.replace(/\s*\(.*\)$/, ''), calidadVoz(v) >= 2 ? h('span', { class: 'etiqueta' }, etiquetaCalidad(calidadVoz(v))) : null),
+          h('span', { class: 'voz-desc' }, `${v.lang} · ${etiquetaCalidad(calidadVoz(v))}`)),
+        h('button', { type: 'button', class: 'boton pequeno', onclick: (e) => { e.preventDefault(); probarVoz(v, prueba); } }, '▶ Probar')));
+    }
+    return [h('h3', {}, titulo), caja];
+  };
+  lista.append(...bloque('es', 'vozSistemaEs', 'Voz del equipo en español', 'Hola, soy tu voz de estudio. En dos mil veinticinco, las ventas aumentaron treinta y dos por ciento.'),
+    ...bloque('en', 'vozSistemaEn', 'Voz del equipo en inglés', 'Hello, this is how I will read your English texts.'),
+    h('p', { class: 'nota-suave' }, '¿Quieres voces más naturales? En el iPhone o iPad: Ajustes → Accesibilidad → Contenido leído → Voces → Español, y descarga una que diga «Mejorada» o «Premium» (por ejemplo Mónica o Paulina). Después vuelve aquí y elígela.'));
+  cont.append(lista);
   return cont;
 }
 
@@ -173,9 +224,10 @@ function seccionLectura() {
   const chips = h('div', { class: 'rejilla-opciones', role: 'radiogroup', 'aria-label': 'Duración del tramo' });
   for (const m of [1, 3, 5, 10]) {
     chips.append(h('button', { type: 'button', role: 'radio', 'aria-checked': String(a.tramoMin === m), class: 'opcion' + (a.tramoMin === m ? ' activa' : ''), onclick: async (e) => {
+      const boton = e.currentTarget;
       await guardarAjustes({ tramoMin: m });
       chips.querySelectorAll('.opcion').forEach((x) => { x.classList.remove('activa'); x.setAttribute('aria-checked', 'false'); });
-      e.currentTarget.classList.add('activa'); e.currentTarget.setAttribute('aria-checked', 'true');
+      boton.classList.add('activa'); boton.setAttribute('aria-checked', 'true');
     } }, `${m} min`));
   }
   cont.append(
@@ -203,9 +255,10 @@ function opcionesCuadros() {
   for (const [c, t] of [['ambos', 'Interpretación y filas'], ['interpretacion', 'Solo interpretación'], ['filas', 'Solo filas']]) {
     const activa = (ctx.ajustes.cuadros || 'ambos') === c;
     g.append(h('button', { type: 'button', role: 'radio', 'aria-checked': String(activa), class: 'opcion' + (activa ? ' activa' : ''), onclick: async (e) => {
+      const boton = e.currentTarget;
       await guardarAjustes({ cuadros: c });
       g.querySelectorAll('.opcion').forEach((x) => { x.classList.remove('activa'); x.setAttribute('aria-checked', 'false'); });
-      e.currentTarget.classList.add('activa'); e.currentTarget.setAttribute('aria-checked', 'true');
+      boton.classList.add('activa'); boton.setAttribute('aria-checked', 'true');
     } }, t));
   }
   return g;
@@ -216,9 +269,10 @@ function opcionesCalidad() {
   for (const [c, t] of [['rapida', 'Rápida'], ['equilibrada', 'Equilibrada'], ['natural', 'Natural']]) {
     const activa = (ctx.ajustes.calidadVoz || 'rapida') === c;
     g.append(h('button', { type: 'button', role: 'radio', 'aria-checked': String(activa), class: 'opcion' + (activa ? ' activa' : ''), onclick: async (e) => {
+      const boton = e.currentTarget;
       await guardarAjustes({ calidadVoz: c, numSteps: PASOS_CALIDAD[c] });
       g.querySelectorAll('.opcion').forEach((x) => { x.classList.remove('activa'); x.setAttribute('aria-checked', 'false'); });
-      e.currentTarget.classList.add('activa'); e.currentTarget.setAttribute('aria-checked', 'true');
+      boton.classList.add('activa'); boton.setAttribute('aria-checked', 'true');
     } }, t));
   }
   return g;
@@ -229,11 +283,12 @@ function opcionesProcesos() {
   const actual = [1, 2, 3].includes(ctx.ajustes.paralelo) ? ctx.ajustes.paralelo : 'auto';
   for (const [n, t] of [['auto', 'Automática'], [1, '1 proceso'], [2, '2 procesos'], [3, '3 procesos']]) {
     g.append(h('button', { type: 'button', role: 'radio', 'aria-checked': String(actual === n), class: 'opcion' + (actual === n ? ' activa' : ''), onclick: async (e) => {
+      const boton = e.currentTarget;
       await guardarAjustes({ paralelo: n });
       try { localStorage.removeItem('vozi-max-procesos'); } catch (err) { /* sin almacenamiento */ }
       ctx.motor.terminar();
       g.querySelectorAll('.opcion').forEach((x) => { x.classList.remove('activa'); x.setAttribute('aria-checked', 'false'); });
-      e.currentTarget.classList.add('activa'); e.currentTarget.setAttribute('aria-checked', 'true');
+      boton.classList.add('activa'); boton.setAttribute('aria-checked', 'true');
     } }, t));
   }
   return g;
@@ -355,9 +410,10 @@ function seccionApariencia() {
   const temas = h('div', { class: 'rejilla-opciones', role: 'radiogroup', 'aria-label': 'Tema' });
   for (const [id, t] of [['sistema', 'Automático'], ['claro', 'Claro'], ['oscuro', 'Oscuro']]) {
     temas.append(h('button', { type: 'button', role: 'radio', 'aria-checked': String(ctx.ajustes.tema === id), class: 'opcion' + (ctx.ajustes.tema === id ? ' activa' : ''), onclick: async (e) => {
+      const boton = e.currentTarget;
       await guardarAjustes({ tema: id }); aplicarTema();
       temas.querySelectorAll('.opcion').forEach((x) => { x.classList.remove('activa'); x.setAttribute('aria-checked', 'false'); });
-      e.currentTarget.classList.add('activa'); e.currentTarget.setAttribute('aria-checked', 'true');
+      boton.classList.add('activa'); boton.setAttribute('aria-checked', 'true');
     } }, t));
   }
   const tam = h('input', { type: 'range', min: 14, max: 34, step: 1, value: ctx.ajustes.letra, 'aria-label': 'Tamaño de letra' });

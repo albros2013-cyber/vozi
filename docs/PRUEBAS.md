@@ -81,7 +81,7 @@ Medido en Chromium con 2 núcleos (el iPhone tiene 6, así que allí debería re
 - **Calidad de voz** (Ajustes → Voz): Rápida (3 pasos, por defecto), Equilibrada (4) y Natural (5). Transcripción automática de la misma frase con voz femenina y masculina: con 5 y 3 pasos se entiende igual (una sílaba dudosa con 3 pasos en la voz masculina); con 2 pasos se cambian palabras («competencia» → «convidencia»), por eso no se ofrece. Preparación: factor 0,94 → 0,65 con un proceso y 0,55 → 0,39 con dos.
 - **Hasta 3 procesos**: «Automática» usa 3 en equipos de 6 núcleos (iPhone Pro); si la app se cierra por memoria baja uno. En el equipo de prueba (2 núcleos) 3 procesos no aportan, como era de esperar.
 - **Escuchar mientras termina de preparar:** «Preparar todo» puede empezar a sonar sola cuando hay suficiente audio adelantado para que la lectura no alcance a la preparación (umbral calculado con la velocidad medida del equipo, nunca más del 50 %). Prueba: empezó al 20 % desde el primer párrafo y terminó sin errores.
-- Regresión completa: 78/78 fases superadas; cuentas en la nube 16/16.
+- Regresión completa: 85/85 fases superadas; cuentas en la nube 16/16.
 
 ## 2h. Asistente de estudio con IA en el equipo (añadido)
 
@@ -105,6 +105,13 @@ Comparación con transcripción automática, misma voz, antes → después:
 - IA (✨ → «Interpretar cuadros», o al usar «Preparar todo» si la IA está descargada): explica cada cuadro en 2-4 oraciones; la voz la dice antes de las filas. Ajustes → Lectura → Cuadros: interpretación y filas / solo interpretación / solo filas.
 - Pruebas: sin cuadros falsos en los 4 PDF de prueba sin tablas; tabla de PDF (5×4) y de Word detectadas con título; lectura ordenada; resaltado de fila; interpretación guardada y leída primero (motor de IA simulado). 11/11.
 - Límite: los cuadros que son imágenes (gráficos, tablas escaneadas) no tienen texto con estructura; se leen como texto OCR.
+
+## 2k. Voces del iPhone/iPad (añadido)
+
+Ajustes → Voz → «Qué voces usar»: Voces de VOZI (audio preparado) o Voces del iPhone/iPad (las de Siri, por la API de voz del navegador). Lista las voces del equipo con su calidad (Premium, Mejorada, Estándar), latinoamericanas primero, con botón «Probar». Lee oración por oración con el texto ya normalizado (números, siglas, cuadros), voz inglesa para párrafos en inglés, resaltado, pausa, oración/párrafo siguiente, velocidad y punto de lectura guardado.
+- Probado con la API de voz simulada (este entorno no trae voces): arranque en ~70 ms sin preparar audio, elección de la mejor voz, inglés con voz inglesa, fin de documento, pausa y navegación, lista en Ajustes. 7/7.
+- Corregido de paso: las opciones de Ajustes (calidad, cuadros, procesos) daban un error al tocarlas, aunque guardaban el cambio.
+- Pendiente en el equipo: si la lectura sigue con la pantalla bloqueada (iOS suele pausar la voz del sistema en apps web).
 
 ## 3. Pendiente de verificar en iPhone/iPad (no probado)
 

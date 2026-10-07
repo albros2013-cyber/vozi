@@ -33,6 +33,10 @@ export class Reproductor extends EventTarget {
 
   // Llamar SIEMPRE dentro de un toque del usuario (requisito de iOS)
   desbloquear() {
+    // Voces del sistema: iOS exige que la primera frase se pida dentro de un toque
+    if (this.usarSistema && !this.sisDesbloqueado && 'speechSynthesis' in window) {
+      try { const u = new SpeechSynthesisUtterance(' '); u.volume = 0; speechSynthesis.speak(u); this.sisDesbloqueado = true; } catch { /* nada */ }
+    }
     if (this.desbloqueado || this.tramo) return;
     try {
       this.audio.src = SILENCIO;
@@ -42,6 +46,7 @@ export class Reproductor extends EventTarget {
   }
 
   async cargar(tramo, desde = 0) {
+    this._pararSistema(true);
     const reg = await db.get('audioBlobs', tramo.id);
     if (!reg || !reg.blob) throw new Error('El audio guardado no está disponible. Vuelve a prepararlo.');
     if (this.url) URL.revokeObjectURL(this.url);
@@ -65,6 +70,7 @@ export class Reproductor extends EventTarget {
   }
 
   async reproducir() {
+    if (this.sis) { this.sis.activo = true; this._hablar(); this._emit('estado'); return; }
     if (!this.tramo) return;
     this.audio.playbackRate = this.velocidad;
     try { await this.audio.play(); this.desbloqueado = true; } catch (e) {
@@ -72,23 +78,34 @@ export class Reproductor extends EventTarget {
     }
     this._bucle();
   }
-  pausar() { this.audio.pause(); }
-  get reproduciendo() { return !!this.tramo && !this.audio.paused && !this.audio.ended; }
-  get tiempo() { return this.audio.currentTime || 0; }
-  get duracion() { return this.tramo ? this.tramo.duracion : 0; }
+  pausar() {
+    if (this.sis) { this.sis.activo = false; this.sis.turno++; speechSynthesis.cancel(); this._emit('estado'); return; }
+    this.audio.pause();
+  }
+  get reproduciendo() { return this.sis ? this.sis.activo : (!!this.tramo && !this.audio.paused && !this.audio.ended); }
+  get tiempo() { return this.sis ? (this.sis.antes + this.sis.prefijo[this.sis.i]) / this.sis.cps : (this.audio.currentTime || 0); }
+  get duracion() { return this.sis ? this.sis.total / this.sis.cps : (this.tramo ? this.tramo.duracion : 0); }
 
   setVelocidad(v) {
     this.velocidad = v;
     this.audio.defaultPlaybackRate = v;
     this.audio.playbackRate = v;
     this.audio.preservesPitch = true; this.audio.webkitPreservesPitch = true;
+    if (this.sis && this.sis.activo) this._hablar(); // voces del sistema: repetir la oración con la nueva velocidad
   }
 
-  saltar(seg) { if (this.tramo) this.audio.currentTime = Math.max(0, Math.min(this.duracion - 0.05, this.tiempo + seg)); this._tick(); }
-  irA(t) { if (this.tramo) { this.audio.currentTime = Math.max(0, Math.min(this.duracion - 0.05, t)); this._tick(); } }
+  saltar(seg) { if (this.sis) { this.irA(this.tiempo + seg); return; } if (this.tramo) this.audio.currentTime = Math.max(0, Math.min(this.duracion - 0.05, this.tiempo + seg)); this._tick(); }
+  irA(t) {
+    if (this.sis) {
+      const objetivo = t * this.sis.cps - this.sis.antes;
+      let j = 0; while (j + 1 < this.sis.unidades.length && this.sis.prefijo[j + 1] <= objetivo) j++;
+      this._irUnidad(Math.max(0, j)); return;
+    }
+    if (this.tramo) { this.audio.currentTime = Math.max(0, Math.min(this.duracion - 0.05, t)); this._tick(); } }
 
   // Navegación por oraciones (+1/-1) y párrafos
   oracion(dir) {
+    if (this.sis) { this._irUnidad(Math.max(0, Math.min(this.sis.unidades.length - 1, this.sis.i + dir))); return; }
     if (!this.tramo) return;
     const ts = this.tramo.tiempos;
     const i = this._indice();
@@ -99,6 +116,13 @@ export class Reproductor extends EventTarget {
     this.irA(ts[j].t0);
   }
   parrafo(dir) {
+    if (this.sis) {
+      const us = this.sis.unidades, i = this.sis.i, pid = us[i] && us[i].pid;
+      let j;
+      if (dir > 0) { j = us.findIndex((u, k) => k > i && u.pid !== pid); if (j < 0) return; }
+      else { j = us.findIndex((u) => u.pid === pid); if (i - j < 1 && j > 0) { const prev = us[j - 1].pid; j = us.findIndex((u) => u.pid === prev); } }
+      this._irUnidad(j); return;
+    }
     if (!this.tramo) return;
     const ts = this.tramo.tiempos;
     const i = Math.max(0, this._indice());
@@ -115,6 +139,7 @@ export class Reproductor extends EventTarget {
   }
   // Ir a un párrafo concreto si está dentro del tramo
   irAParrafo(pid) {
+    if (this.sis) { const j = this.sis.unidades.findIndex((u) => u.pid === pid); if (j < 0) return false; this._irUnidad(j); return true; }
     if (!this.tramo) return false;
     const t = this.tramo.tiempos.find((x) => x.pid === pid);
     if (!t) return false;
@@ -131,6 +156,7 @@ export class Reproductor extends EventTarget {
   }
 
   posicionActual() {
+    if (this.sis) { const u = this.sis.unidades[this.sis.i]; return u ? { pid: u.pid, s: u.s, idx: this.sis.i, tiempo: this.tiempo } : null; }
     const i = this._indice();
     if (i < 0) return null;
     const t = this.tramo.tiempos[i];
@@ -185,7 +211,67 @@ export class Reproductor extends EventTarget {
   }
   setTitulo(t) { this.titulo = t; this._actualizarSesion(); }
 
+  // ---------- Voces del sistema (speechSynthesis): una oración por vez ----------
+  // unidades: [{pid, s, texto, lang, chars}] · voces: {es, en} (SpeechSynthesisVoice)
+  hablarSistema({ docId, unidades, antes = 0, total, cps = 14, voces, reproducir = true }) {
+    this._pararSistema(true);
+    if (this.url) URL.revokeObjectURL(this.url);
+    this.url = null; this.tramo = null;
+    this.audio.removeAttribute('src');
+    const prefijo = [0];
+    for (const u of unidades) prefijo.push(prefijo[prefijo.length - 1] + u.chars);
+    this.sis = { docId, unidades, i: 0, activo: false, turno: 0, antes, total: total || antes + prefijo[prefijo.length - 1], cps, voces, prefijo };
+    this._actualizarSesion();
+    if (reproducir) this.reproducir(); else this._emitPosSistema();
+  }
+  _irUnidad(j) {
+    if (!this.sis) return;
+    this.sis.i = j;
+    if (this.sis.activo) this._hablar(); else this._emitPosSistema();
+  }
+  _emitPosSistema() {
+    const u = this.sis && this.sis.unidades[this.sis.i];
+    if (!u) return;
+    this._emit('posicion', { pid: u.pid, s: u.s, idx: this.sis.i, tiempo: this.tiempo });
+    this._emit('tiempo', { tiempo: this.tiempo, duracion: this.duracion });
+  }
+  _hablar() {
+    const sis = this.sis;
+    if (!sis) return;
+    const turno = ++sis.turno;
+    speechSynthesis.cancel();
+    const u = sis.unidades[sis.i];
+    if (!u) { sis.activo = false; this._emit('estado'); this._emit('finSistema'); return; }
+    const ut = new SpeechSynthesisUtterance(u.texto);
+    const v = u.lang === 'en' ? (sis.voces.en || sis.voces.es) : sis.voces.es;
+    if (v) { ut.voice = v; ut.lang = v.lang; } else ut.lang = u.lang === 'en' ? 'en-US' : 'es-MX';
+    ut.rate = Math.max(0.5, Math.min(2, this.velocidad));
+    ut.onstart = () => { if (turno === sis.turno) this._emitPosSistema(); };
+    ut.onend = () => {
+      if (turno !== sis.turno || !sis.activo || this.sis !== sis) return;
+      sis.i++;
+      // Pausa corta entre párrafos y después de los títulos
+      const sig = sis.unidades[sis.i];
+      const pausa = sig && (sig.pid !== u.pid || u.titulo) ? 260 : 0;
+      setTimeout(() => { if (turno === sis.turno && sis.activo) this._hablar(); }, pausa);
+    };
+    ut.onerror = (e) => {
+      if (turno !== sis.turno || ['interrupted', 'canceled'].includes(e.error)) return;
+      if (e.error === 'not-allowed') { sis.activo = false; this._emit('estado'); this._emit('error', { mensaje: 'Toca ▶ para empezar: el sistema pidió confirmar la lectura.', bloqueo: true }); return; }
+      sis.i++; if (sis.activo) this._hablar();
+    };
+    this._emitPosSistema();
+    speechSynthesis.speak(ut);
+  }
+  _pararSistema(borrar) {
+    if (!this.sis) return;
+    this.sis.activo = false; this.sis.turno++;
+    try { speechSynthesis.cancel(); } catch { /* nada */ }
+    if (borrar) this.sis = null;
+  }
+
   descargar() {
+    this._pararSistema(true);
     if (this.url) URL.revokeObjectURL(this.url);
     this.url = null; this.tramo = null;
     this.audio.removeAttribute('src');

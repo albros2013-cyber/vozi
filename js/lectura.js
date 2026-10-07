@@ -7,6 +7,7 @@ import { cargarManifiesto, estadoPaquete } from './resources.js';
 import { idiomasDeParrafos } from './tts/idioma.js';
 import { planificarTramo, buscarTramoGuardado, prepararTramo, hashParrafos } from './tts/tramos.js';
 import { aviso, formatoRestante, formatoTiempo, h, dialogo } from './ui.js';
+import { hayVozSistema, vocesSistema, vozElegida, unidadesDesde } from './voz-sistema.js';
 
 const ev = new EventTarget();
 export const eventos = ev;
@@ -157,13 +158,35 @@ async function tramoGuardadoQueEmpieza(doc, p, s = 0) {
   return null;
 }
 
+// ¿Leer con las voces del propio iPhone/iPad (al instante, sin preparar audio)?
+export function nombreVozSistema() {
+  try { const v = vozElegida(speechSynthesis.getVoices(), 'es'); return v ? v.name.replace(/\s*\(.*\)$/, '') : 'Voz del equipo'; } catch (e) { return 'Voz del equipo'; }
+}
+export function usaVozSistema() { return ctx.ajustes.motorVoz === 'sistema' && hayVozSistema(); }
+
+async function escucharConSistema(doc, pidx, desdeOracion, reproducir) {
+  const pid = doc.paragraphs[pidx] && doc.paragraphs[pidx].id;
+  // Ya cargado para este documento: saltar a ese párrafo
+  if (ctx.rep.sis && ctx.rep.sis.docId === doc.id && !desdeOracion && ctx.rep.irAParrafo(pid)) { if (reproducir) ctx.rep.reproducir(); return; }
+  cancelarPreparacion(); cancelarSiguiente(); detenerTodo();
+  const voces = await vocesSistema();
+  const unidades = unidadesDesde(doc, pidx, desdeOracion);
+  if (!unidades.length) { aviso('No hay más texto para leer desde aquí.'); return; }
+  let antes = 0, total = 0;
+  doc.paragraphs.forEach((p, i) => { const n = (p.text || '').length; total += n; if (i < pidx) antes += n; });
+  ctx.rep.hablarSistema({ docId: doc.id, unidades, antes, total, cps: ctx.ajustes.cps || 14, voces: { es: vozElegida(voces, 'es'), en: vozElegida(voces, 'en') }, reproducir });
+  emitir('tramo', null);
+}
+
 // Punto de entrada: escuchar el documento actual desde un párrafo
 export async function escucharDesde(pidx, { reproducir = true, desdeOracion = 0 } = {}) {
   const doc = ctx.doc;
   if (!doc) return;
+  ctx.rep.usarSistema = usaVozSistema();
   ctx.rep.desbloquear();
   const pid = doc.paragraphs[pidx] && doc.paragraphs[pidx].id;
   emitir('objetivo', { pid, s: 0 }); // resaltar al instante el párrafo elegido
+  if (usaVozSistema()) { await escucharConSistema(doc, pidx, desdeOracion, reproducir); return; }
   // 1) ¿Está dentro del tramo cargado? → salto inmediato
   if (ctx.rep.tramo && ctx.rep.tramo.docId === doc.id && ctx.rep.irAParrafo(pid)) {
     if (reproducir) ctx.rep.reproducir();
@@ -234,7 +257,7 @@ export async function escucharDesde(pidx, { reproducir = true, desdeOracion = 0 
 // Precarga la voz en memoria para que el primer «Escuchar» no espere la carga del modelo
 export async function precalentar() {
   try {
-    if (!ctx.doc || ctx.motor.listo) return;
+    if (!ctx.doc || ctx.motor.listo || usaVozSistema()) return;
     const { ok, pack } = await vozLista();
     if (!ok) return;
     await ctx.motor.preparar(pack, null, procesosEfectivos());
@@ -367,7 +390,7 @@ export async function restaurarPosicion(doc) {
   if (!pr) return null;
   let pidx = indicePorPid(doc, pr.pid);
   if (pidx < 0) pidx = Math.min(pr.pidx || 0, doc.paragraphs.length - 1);
-  if (pr.audioId) {
+  if (pr.audioId && !usaVozSistema()) {
     const rec = await db.get('audio', pr.audioId);
     const voz = vozPorId(ctx.ajustes.vozId);
     if (rec && (rec.vozId === voz.id || String(rec.vozId).startsWith(voz.id + '+')) && rec.parrafos.every((id) => doc.paragraphs.some((p) => p.id === id))) {

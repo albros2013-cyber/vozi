@@ -555,6 +555,65 @@ if (quiere('cuadros')) {
   await page.evaluate(() => localStorage.removeItem('vozi-ia-simulada'));
   ok('Cuadros: sin errores', errores.length === errs0, errores.slice(errs0).join(' | '));
 }
+if (quiere('vozsistema')) {
+  // Voces del sistema (Siri): se simula la API de voz del navegador (el entorno de prueba no trae voces)
+  await page.evaluate(async () => {
+    const voces = [{ name: 'Mónica', voiceURI: 'com.apple.voice.compact.es-ES.Monica', lang: 'es-ES' },
+      { name: 'Paulina (Mejorada)', voiceURI: 'com.apple.voice.enhanced.es-MX.Paulina', lang: 'es-MX' },
+      { name: 'Samantha', voiceURI: 'com.apple.voice.compact.en-US.Samantha', lang: 'en-US' }];
+    window.__habladas = [];
+    window.SpeechSynthesisUtterance = class { constructor(t) { this.text = t; } };
+    Object.defineProperty(window, 'speechSynthesis', { configurable: true, value: {
+      getVoices: () => voces, addEventListener() {}, pause() {}, resume() {},
+      speak(u) { window.__habladas.push({ t: u.text, v: u.voice && u.voice.name, rate: u.rate, vol: u.volume }); this._u = u;
+        setTimeout(() => { if (this._u !== u) return; u.onstart && u.onstart(); setTimeout(() => { if (this._u === u) { this._u = null; u.onend && u.onend(); } }, 60); }, 5); },
+      cancel() { const u = this._u; this._u = null; if (u && u.onerror) u.onerror({ error: 'interrupted' }); },
+    } });
+    const { guardarAjustes } = await import('./js/estado.js');
+    await guardarAjustes({ motorVoz: 'sistema' });
+    await window.__vozi.db.put('docs', { id: 'dsis', title: 'Voz del sistema', createdAt: Date.now(), updatedAt: Date.now(), source: { type: 'texto' }, pages: 0, paragraphs: [
+      { id: 's0', text: 'Capítulo 1. Introducción', page: null, kind: 'h' },
+      { id: 's1', text: 'La empresa creció 32 % en 2025. La directora advirtió que no podían confiarse.', page: null, kind: 'p' },
+      { id: 's2', text: 'The market grew quickly during the second half of the year, according to the report.', page: null, kind: 'p' },
+      { id: 's3', text: 'Finalmente, el informe propone medir cada trimestre la satisfacción de los usuarios.', page: null, kind: 'p' }] });
+  });
+  const errs0 = errores.length;
+  await irA('biblioteca'); await page.click('.doc-abrir:has-text("Voz del sistema")'); await page.waitForSelector('.texto-lectura .parrafo');
+  const t0 = Date.now();
+  await page.click('#repPlay');
+  await page.waitForFunction(() => window.__habladas.some((x) => x.vol !== 0), null, { timeout: 5000 });
+  const inicio = Date.now() - t0;
+  const r1 = await page.evaluate(() => ({ h: window.__habladas.filter((x) => x.vol !== 0)[0], prep: !!window.__vozi.L.estadoLectura.preparando, sis: !!window.__vozi.ctx.rep.sis }));
+  ok('Voces del iPhone: empiezan al instante, sin preparar audio', inicio < 1500 && !r1.prep && r1.sis, `${inicio} ms`);
+  ok('Voces del iPhone: usa la mejor voz en español (Mejorada) y el texto normalizado', r1.h && r1.h.v === 'Paulina (Mejorada)' && /Capítulo uno/.test(r1.h.t), JSON.stringify(r1.h));
+  await page.waitForFunction(() => !window.__vozi.ctx.rep.reproduciendo, null, { timeout: 15000 });
+  const r2 = await page.evaluate(async () => ({ hab: window.__habladas.filter((x) => x.vol !== 0).map((x) => x.v + '|' + x.t), prog: await window.__vozi.db.get('progress', 'dsis'), aviso: document.getElementById('aviso').textContent }));
+  ok('Voces del iPhone: lee oración por oración y el inglés con voz inglesa', r2.hab.length === 6 && /^Samantha\|The market/.test(r2.hab[4]) && /treinta y dos por ciento/.test(r2.hab[2]), r2.hab.map((x) => x.slice(0, 40)).join(' ‖ '));
+  ok('Voces del iPhone: llega al final y guarda el punto de lectura', /final del documento/.test(r2.aviso) && r2.prog && r2.prog.pid === 's3', r2.aviso + ' · ' + (r2.prog && r2.prog.pid));
+  // Pausa, siguiente oración y reanudar
+  const r3 = await page.evaluate(async () => {
+    const { ctx, L } = window.__vozi;
+    window.__habladas = [];
+    await L.escucharDesde(1);
+    await new Promise((x) => setTimeout(x, 20));
+    ctx.rep.pausar();
+    const pausado = !ctx.rep.reproduciendo;
+    ctx.rep.oracion(1);
+    const pos = ctx.rep.posicionActual();
+    ctx.rep.reproducir();
+    await new Promise((x) => setTimeout(x, 30));
+    const ultima = window.__habladas[window.__habladas.length - 1].t;
+    ctx.rep.pausar();
+    return { pausado, pos, ultima, resaltado: document.querySelector('.parrafo.actual')?.dataset.pid };
+  });
+  ok('Voces del iPhone: pausa, siguiente oración y resaltado', r3.pausado && r3.pos.pid === 's1' && r3.pos.s === 1 && /directora/.test(r3.ultima) && r3.resaltado === 's1', JSON.stringify(r3));
+  // Ajustes: lista de voces del equipo
+  await irA('ajustes');
+  const lista = await page.$$eval('#sec-voz .lista-voces .voz-nombre', (e) => e.map((x) => x.textContent));
+  ok('Voces del iPhone: Ajustes muestra las voces del equipo, la mejor primero', lista[0] && lista[0].startsWith('Paulina'), lista.slice(0, 3).join(', '));
+  await page.evaluate(async () => { const { guardarAjustes } = await import('./js/estado.js'); await guardarAjustes({ motorVoz: 'vozi' }); window.__vozi.ctx.rep.descargar(); });
+  ok('Voces del iPhone: sin errores', errores.length === errs0, errores.slice(errs0).join(' | '));
+}
 if (quiere('corte')) {
   // Si el tramo actual termina antes de que el siguiente esté listo, se entrega ya lo que haya
   await page.evaluate(async () => {
