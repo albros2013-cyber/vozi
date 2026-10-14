@@ -96,25 +96,32 @@ export async function buscarTramoGuardado(doc, plan, voz, ajustes) {
 }
 
 // Ensambla las piezas sintetizadas en un único audio con pausas controladas y volumen uniforme.
+// Volumen parejo: cada pieza se lleva al mismo nivel ABSOLUTO de voz (medido solo donde hay voz,
+// sin contar silencios), igual en todos los tramos y documentos. Un limitador suave evita saturar.
+const NIVEL_VOZ = 0.085; // ≈ -21 dBFS de voz activa
+function rmsVoz(x, sr) {
+  const n = Math.max(1, Math.round(sr * 0.02));
+  const marcos = [];
+  for (let i = 0; i + n <= x.length; i += n) { let s = 0; for (let k = i; k < i + n; k++) s += x[k] * x[k]; marcos.push(s / n); }
+  if (!marcos.length) return 0;
+  const max = Math.max(...marcos);
+  const activos = marcos.filter((e) => e > max * 0.03 && e > 1e-6);
+  return activos.length ? Math.sqrt(activos.reduce((a, b) => a + b, 0) / activos.length) : 0;
+}
+function limitar(v) { const a = Math.abs(v); return a <= 0.9 ? v : Math.sign(v) * (0.9 + 0.09 * Math.tanh((a - 0.9) / 0.09)); }
+
 export function ensamblar(piezas, sampleRate) {
-  // Igualación suave de volumen: cada pieza se acerca a la mediana (máximo ±4 dB)
-  const rms = piezas.map((p) => {
-    let s = 0; const x = p.samples;
-    for (let i = 0; i < x.length; i++) s += x[i] * x[i];
-    return x.length ? Math.sqrt(s / x.length) : 0;
-  });
-  const validos = rms.filter((r) => r > 0.005).sort((a, b) => a - b);
-  const mediana = validos.length ? validos[validos.length >> 1] : 0.1;
+  const rms = piezas.map((p) => rmsVoz(p.samples, sampleRate));
   let total = 0;
   for (const p of piezas) total += p.samples.length + Math.round(p.pausa * sampleRate);
   const out = new Float32Array(total);
   const tiempos = [];
   let off = 0;
   piezas.forEach((p, i) => {
-    let g = rms[i] > 0.005 ? mediana / rms[i] : 1;
-    g = Math.min(1.585, Math.max(0.63, g));
+    let g = rms[i] > 0.003 ? NIVEL_VOZ / rms[i] : 1;
+    g = Math.min(4, Math.max(0.2, g));
     const x = p.samples;
-    for (let k = 0; k < x.length; k++) out[off + k] = x[k] * g;
+    for (let k = 0; k < x.length; k++) out[off + k] = limitar(x[k] * g);
     const t0 = off / sampleRate;
     off += x.length;
     if (p.oraciones && p.oraciones.length > 1) {
@@ -123,10 +130,6 @@ export function ensamblar(piezas, sampleRate) {
     } else tiempos.push({ id: p.id, pid: p.pid, s: p.s, t0, t1: off / sampleRate });
     off += Math.round(p.pausa * sampleRate);
   });
-  // Normalización de pico a -1 dBFS
-  let pico = 0;
-  for (let i = 0; i < out.length; i++) { const a = Math.abs(out[i]); if (a > pico) pico = a; }
-  if (pico > 0) { const g = 0.89 / pico; for (let i = 0; i < out.length; i++) out[i] *= g; }
   return { samples: out, tiempos, duracion: total / sampleRate };
 }
 

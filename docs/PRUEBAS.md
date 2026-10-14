@@ -113,6 +113,11 @@ Ajustes → Voz → «Qué voces usar»: Voces de VOZI (audio preparado) o Voces
 - Corregido de paso: las opciones de Ajustes (calidad, cuadros, procesos) daban un error al tocarlas, aunque guardaban el cambio.
 - Pendiente en el equipo: si la lectura sigue con la pantalla bloqueada (iOS suele pausar la voz del sistema en apps web).
 
+## 2l. Voz más pareja e idioma estable (añadido)
+
+- Idioma: todo se lee en el idioma principal del documento; la voz solo cambia en párrafos claramente del otro idioma (6+ palabras y el doble de evidencia). Cifras, «$», «USD», «COP», tablas y títulos cortos ya no hacen saltar al inglés. «$ 25.000.000 COP» ya no dice «pesos» dos veces.
+- Volumen: cada oración se lleva al mismo nivel absoluto de voz (medido solo donde hay voz) en todos los tramos, con un limitador suave; antes cada tramo se ajustaba a su propio pico y el nivel variaba de un tramo a otro.
+
 ## 3. Pendiente de verificar en iPhone/iPad (no probado)
 
 - Que dos procesos de voz quepan en la memoria del iPhone (unos 250 MB cada uno). Si no, VOZI vuelve sola a uno.

@@ -339,6 +339,9 @@ export function normalizar(texto, opciones = {}) {
     return leerMonto(mon, cifra, '');
   });
 
+  // «$ 25.000.000 COP» → no repetir la moneda
+  t = t.replace(/\b(pesos|pesos colombianos|dólares)\s+(COP|USD|US\$|pesos|dólares)\b/g, '$1');
+
   // Porcentajes y por mil
   t = t.replace(new RegExp(`(${CIFRA})\\s?%`, 'g'), (_, c) => `${cifraALetras(c, 'apocope')} por ciento`);
   t = t.replace(new RegExp(`(${CIFRA})\\s?‰`, 'g'), (_, c) => `${cifraALetras(c, 'apocope')} por mil`);
